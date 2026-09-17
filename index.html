@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VocalPure — AI Vocal Remover & Music Player | Download APK for Android</title>
+  <meta name="description" content="VocalPure is a free AI music player for Android that analyzes any song, removes the instrumental track, and keeps crystal-clear isolated vocals. Download the APK." />
+  <meta name="theme-color" content="#070818" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23a855f7'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='16' fill='%23070818'/%3E%3Ccircle cx='32' cy='32' r='20' fill='none' stroke='url(%23g)' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='6' fill='url(%23g)'/%3E%3Cpath d='M32 12v8M32 44v8M12 32h8M44 32h8' stroke='url(%23g)' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <noscript><style>.reveal{opacity:1 !important;transform:none !important;}.scroll-hint{display:none;}</style></noscript>
+</head>
+<body>
+  <!-- ===== Animated background layers ===== -->
+  <div id="custom-bg-layer" aria-hidden="true"></div>
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-1"></span>
+    <span class="orb orb-2"></span>
+    <span class="orb orb-3"></span>
+    <span class="orb orb-4"></span>
+  </div>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <canvas id="bg-canvas" aria-hidden="true"></canvas>
+  <div class="bg-vignette" aria-hidden="true"></div>
+
+  <!-- ===== Header ===== -->
+  <header class="site-header" id="site-header">
+    <div class="container header-inner">
+      <a href="#top" class="brand" aria-label="VocalPure home">
+        <span class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 64 64" width="34" height="34"><defs><linearGradient id="lg1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a855f7"/><stop offset="1" stop-color="#3b82f6"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="#0b0e24"/><circle cx="32" cy="32" r="19" fill="none" stroke="url(#lg1)" stroke-width="5"/><circle cx="32" cy="32" r="6" fill="url(#lg1)"/><path d="M32 13v7M32 44v7M13 32h7M44 32h7" stroke="url(#lg1)" stroke-width="4" stroke-linecap="round"/></svg>
+        </span>
+        <span class="brand-name">Vocal<em>Pure</em></span>
+      </a>
+      <nav class="main-nav" id="main-nav" aria-label="Main navigation">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#demo">Live demo</a>
+        <a href="#screens">Screens</a>
+        <a href="#faq">FAQ</a>
+        <a href="#download" class="btn btn-primary btn-sm nav-cta">Download APK</a>
+      </nav>
+      <button class="nav-toggle" id="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="main-nav">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- ===== Hero ===== -->
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <p class="badge reveal"><span class="pulse-dot" aria-hidden="true"></span><span id="hero-version">v2.4.1 · Android 8.0+ · 100% Free</span></p>
+          <h1 class="reveal">Hear Only the Voice.<br /><span class="gradient-text">Feel Every Word.</span></h1>
+          <p class="lead reveal">VocalPure is an AI-powered music player that analyzes any song, strips away the instrumental track, and keeps <strong>crystal-clear isolated vocals</strong> — perfect for karaoke, singing practice, remixes, and study.</p>
+          <div class="hero-actions reveal">
+            <a href="#download" class="btn btn-primary btn-lg">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16"/></svg>
+              Download APK — Free
+            </a>
+            <a href="#demo" class="btn btn-ghost btn-lg">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
+              Try live demo
+            </a>
+          </div>
+          <ul class="hero-trust reveal" aria-label="Highlights">
+            <li><strong>4.8★</strong><span>user rating</span></li>
+            <li><strong>500K+</strong><span>downloads</span></li>
+            <li><strong>Offline</strong><span>on-device AI</span></li>
+            <li><strong>No signup</strong><span>needed</span></li>
+          </ul>
+          <p class="hero-note reveal">Free forever · No ads in player · Scanned &amp; signature-verified build</p>
+        </div>
+
+        <div class="hero-visual reveal">
+          <div class="phone" role="img" aria-label="VocalPure app preview: music player with vocal isolation enabled">
+            <div class="phone-notch" aria-hidden="true"></div>
+            <div class="phone-screen">
+              <p class="mini-appbar">NOW PLAYING <span class="ai-chip">AI VOCALS: ON</span></p>
+              <div class="mini-art" aria-hidden="true">
+                <div class="mini-disc"></div>
+              </div>
+              <p class="mini-title">Midnight Echoes</p>
+              <p class="mini-artist">Nova Reign — Vocals isolated</p>
+              <div class="mini-viz" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <div class="mini-progress" aria-hidden="true"><span></span></div>
+              <div class="mini-controls" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+                <span class="mini-play"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg></span>
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
+              </div>
+              <div class="mini-modes" aria-hidden="true">
+                <span>Original</span><span class="active">Vocals only</span><span>Karaoke</span>
+              </div>
+            </div>
+          </div>
+          <div class="float-card float-a" aria-hidden="true"><strong>98.2%</strong><span>vocal clarity</span></div>
+          <div class="float-card float-b" aria-hidden="true"><strong>−24 dB</strong><span>instruments removed</span></div>
+        </div>
+      </div>
+      <a href="#features" class="scroll-hint" aria-label="Scroll to features"><span></span></a>
+    </section>
+
+    <!-- ===== Features ===== -->
+    <section class="section" id="features">
+      <div class="container">
+        <p class="section-kicker reveal">Why VocalPure</p>
+        <h2 class="reveal">A music player with <span class="gradient-text">superpowers</span></h2>
+        <p class="section-sub reveal">Everything you love about a premium music player, fused with studio-grade AI stem separation.</p>
+        <div class="features-grid">
+          <article class="card reveal">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10m0 0a3 3 0 103 3M12 13a3 3 0 10-3 3"/><rect x="5" y="3" width="14" height="11" rx="3"/><path d="M8 21h8"/></svg></div>
+            <h3>AI Vocal Isolation</h3>
+            <p>Neural stem separation analyzes every song and removes drums, bass, guitars and synths — keeping only pure, studio-clean vocals.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg></div>
+            <h3>Full Music Player</h3>
+            <p>Playlists, favorites, sleep timer, gapless playback and a 10-band equalizer. Your whole library, beautifully organized.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20V7"/></svg></div>
+            <h3>Live Music Analyzer</h3>
+            <p>Real-time waveform, spectrum visualizer, BPM and musical-key detection help you understand and learn every track.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a5 5 0 015 5c0 2-1 3.5-2 4.5V15a3 3 0 01-6 0v-2.5C8 11.5 7 10 7 8a5 5 0 015-5z"/><path d="M9 19h6M12 15v4"/></svg></div>
+            <h3>Karaoke Mode</h3>
+            <p>Flip it around: mute the vocals instead and sing over the original instrumental. Pitch guide and lyric sync included.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+            <h3>Offline &amp; Private</h3>
+            <p>Separation runs 100% on your device. Your music never leaves your phone — no uploads, no tracking, no account needed.</p>
+          </article>
+          <article class="card reveal">
+            <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+            <h3>Every Format</h3>
+            <p>MP3, FLAC, WAV, M4A, AAC, OGG and OPUS — including hi-res lossless. Export isolated vocals as WAV or MP3.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== How it works ===== -->
+    <section class="section section-alt" id="how">
+      <div class="container">
+        <p class="section-kicker reveal">Simple as 1-2-3-4</p>
+        <h2 class="reveal">From full song to <span class="gradient-text">pure vocals</span> in seconds</h2>
+        <div class="steps">
+          <article class="step reveal"><span class="step-num" aria-hidden="true">1</span><h3>Install the APK</h3><p>Download below and tap install. No root, no Play account, no permissions beyond your music folder.</p></article>
+          <article class="step reveal"><span class="step-num" aria-hidden="true">2</span><h3>Import your music</h3><p>VocalPure auto-discovers songs on your phone, or import any audio file in one tap.</p></article>
+          <article class="step reveal"><span class="step-num" aria-hidden="true">3</span><h3>Tap “Isolate Vocals”</h3><p>The AI analyzer separates the track into stems and mutes every instrument in real time.</p></article>
+          <article class="step reveal"><span class="step-num" aria-hidden="true">4</span><h3>Play, save &amp; share</h3><p>Listen instantly, fine-tune with the vocal booster EQ, then export or share your mix.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Live demo ===== -->
+    <section class="section" id="demo">
+      <div class="container">
+        <p class="section-kicker reveal">Interactive preview</p>
+        <h2 class="reveal">Try vocal isolation <span class="gradient-text">right here</span></h2>
+        <p class="section-sub reveal">Upload any stereo song — or generate our built-in demo mix — and switch between <strong>Original</strong>, <strong>Vocals&nbsp;only</strong> and <strong>Karaoke</strong> (instruments only). Everything runs locally in your browser; nothing is uploaded.</p>
+
+        <div class="demo-panel reveal">
+          <div class="demo-left">
+            <div class="demo-drop" id="demo-drop">
+              <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5l5 5"/><path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>
+              <p><strong>Drop an audio file here</strong> or <button type="button" class="link-btn" id="demo-browse">browse your device</button></p>
+              <p class="demo-hint">MP3 · WAV · M4A · OGG · up to 50 MB · stays on your device</p>
+              <input type="file" id="demo-file" accept="audio/*" hidden />
+            </div>
+            <div class="demo-or"><span>or</span></div>
+            <button type="button" class="btn btn-ghost btn-block" id="demo-synth">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg>
+              No file handy? Generate a demo mix
+            </button>
+            <p class="demo-track" id="demo-track-label">No track loaded</p>
+            <div class="demo-modes" role="group" aria-label="Separation mode">
+              <button type="button" class="mode-btn is-active" data-mode="original">Original</button>
+              <button type="button" class="mode-btn" data-mode="vocals">Vocals only</button>
+              <button type="button" class="mode-btn" data-mode="karaoke">Karaoke</button>
+            </div>
+          </div>
+          <div class="demo-right">
+            <canvas id="demo-viz" width="640" height="180" aria-label="Audio visualizer" role="img"></canvas>
+            <div class="demo-transport">
+              <button type="button" class="play-btn" id="demo-play" aria-label="Play or pause" disabled>
+                <svg id="demo-play-icon" viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+              </button>
+              <div class="demo-progress-wrap">
+                <div class="demo-progress" id="demo-progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><span id="demo-progress-fill"></span></div>
+                <div class="demo-times"><span id="demo-time-cur">0:00</span><span id="demo-time-total">0:00</span></div>
+              </div>
+            </div>
+            <div class="demo-controls">
+              <label class="demo-vol">Volume
+                <input type="range" id="demo-volume" min="0" max="100" value="80" aria-label="Volume" />
+              </label>
+              <button type="button" class="btn btn-ghost btn-sm" id="demo-stop" disabled>Stop</button>
+            </div>
+            <p class="demo-status" id="demo-status" role="status" aria-live="polite">Load a track to begin. Tip: stereo songs with centered vocals separate best.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Screens ===== -->
+    <section class="section section-alt" id="screens">
+      <div class="container">
+        <p class="section-kicker reveal">Inside the app</p>
+        <h2 class="reveal">Designed for <span class="gradient-text">music lovers</span></h2>
+        <div class="screens-grid">
+          <article class="screen-card reveal">
+            <div class="phone phone-sm" role="img" aria-label="Player screen preview">
+              <div class="phone-notch" aria-hidden="true"></div>
+              <div class="phone-screen">
+                <p class="mini-appbar">PLAYER</p>
+                <div class="mini-art" aria-hidden="true"><div class="mini-disc"></div></div>
+                <p class="mini-title">Neon Skyline</p>
+                <p class="mini-artist">Vocals · 98% clarity</p>
+                <div class="mini-viz" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                <div class="mini-progress" aria-hidden="true"><span style="width:62%"></span></div>
+              </div>
+            </div>
+            <h3>Smart Player</h3><p>Gapless playback, vocal-booster EQ and one-tap stem switching.</p>
+          </article>
+          <article class="screen-card reveal">
+            <div class="phone phone-sm" role="img" aria-label="Analyzer screen preview">
+              <div class="phone-notch" aria-hidden="true"></div>
+              <div class="phone-screen">
+                <p class="mini-appbar">ANALYZER</p>
+                <div class="mini-wave" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+                <div class="mini-stats" aria-hidden="true"><div><strong>124</strong><span>BPM</span></div><div><strong>Am</strong><span>KEY</span></div><div><strong>−6dB</strong><span>LOUD</span></div></div>
+                <div class="mini-bars" aria-hidden="true"><span style="height:40%"></span><span style="height:70%"></span><span style="height:55%"></span><span style="height:90%"></span><span style="height:65%"></span><span style="height:80%"></span></div>
+              </div>
+            </div>
+            <h3>Music Analyzer</h3><p>BPM, key, waveform and spectrum — learn every song deeply.</p>
+          </article>
+          <article class="screen-card reveal">
+            <div class="phone phone-sm" role="img" aria-label="Library screen preview">
+              <div class="phone-notch" aria-hidden="true"></div>
+              <div class="phone-screen">
+                <p class="mini-appbar">LIBRARY</p>
+                <ul class="mini-list" aria-hidden="true">
+                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>3:42</b></li>
+                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>4:05</b></li>
+                  <li class="on"><span class="dot"></span><span class="lines"><i></i><i></i></span><b>2:58</b></li>
+                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>5:11</b></li>
+                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>3:27</b></li>
+                </ul>
+                <div class="mini-modes" aria-hidden="true"><span>Songs</span><span class="active">Vocals</span><span>Karaoke</span></div>
+              </div>
+            </div>
+            <h3>Vocal Library</h3><p>Auto-sorted originals, isolated vocals and karaoke mixes.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Download ===== -->
+    <section class="section" id="download">
+      <div class="container">
+        <p class="section-kicker reveal">Get the app</p>
+        <h2 class="reveal">Download <span class="gradient-text">VocalPure APK</span></h2>
+        <p class="section-sub reveal">Free direct download, straight from us. Verify the SHA-256 checksum after downloading for maximum safety.</p>
+
+        <div class="dl-grid">
+          <article class="dl-card dl-main reveal">
+            <div class="dl-head">
+              <span class="dl-tag">Stable · Recommended</span>
+              <h3>VocalPure <span data-app="version">v2.4.1</span></h3>
+              <p class="dl-meta">Updated <span data-app="updated">Sep 17, 2026</span> · <span data-app="size">—</span> · Android <span data-app="minAndroid">8.0+</span></p>
+            </div>
+            <ul class="dl-points">
+              <li>AI vocal isolation + full music player</li>
+              <li>Works fully offline, no account needed</li>
+              <li>Signature-verified &amp; malware-scanned</li>
+            </ul>
+            <a class="btn btn-primary btn-lg btn-block" id="dl-stable" href="downloads/VocalPure-v2.4.1.apk" download>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16"/></svg>
+              Download APK (<span data-app="size">—</span>)
+            </a>
+            <div class="dl-row">
+              <button type="button" class="btn btn-ghost btn-sm" id="dl-copy">Copy link</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="dl-sha">Show SHA-256</button>
+            </div>
+            <p class="dl-sha" id="dl-sha-text" hidden>SHA-256: <code data-app="sha256">…</code></p>
+          </article>
+
+          <div class="dl-side">
+            <article class="dl-card reveal">
+              <h3>Beta channel <span class="dl-tag dl-tag-beta">v2.5.0-beta.2</span></h3>
+              <p>Try new AI models first. Beta builds may be unstable — keep the stable APK as backup.</p>
+              <a class="btn btn-ghost btn-block" id="dl-beta" href="downloads/VocalPure-v2.5.0-beta.2.apk" download>Download beta APK (<span data-app="betaSize">—</span>)</a>
+            </article>
+            <article class="dl-card reveal">
+              <h3>Install on your phone</h3>
+              <ol class="dl-steps">
+                <li>Tap <strong>Download APK</strong> (or scan the QR code below).</li>
+                <li>Open the file and allow <strong>“Install unknown apps”</strong> when asked.</li>
+                <li>Tap <strong>Install</strong>, then open VocalPure and enjoy!</li>
+              </ol>
+              <div class="dl-qr">
+                <img id="dl-qr-img" alt="QR code for the APK download link" width="120" height="120" loading="lazy" />
+                <p>Scan with your phone camera to download directly.</p>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="dl-grid-2">
+          <article class="dl-card reveal">
+            <h3>Requirements</h3>
+            <ul class="check-list">
+              <li>Android 8.0 (Oreo) or newer, 64-bit</li>
+              <li>4 GB RAM recommended (2 GB minimum)</li>
+              <li>250 MB free storage for the app + AI model</li>
+              <li>No root · No Google account · Works offline</li>
+            </ul>
+          </article>
+          <article class="dl-card reveal">
+            <h3>What's new in <span data-app="version">v2.4.1</span></h3>
+            <ul class="check-list" id="changelog">
+              <li>New “PureVoice v3” AI model — 31% cleaner vocals</li>
+              <li>Karaoke mode with real-time lyric sync</li>
+              <li>FLAC / OPUS export for isolated stems</li>
+              <li>40% faster analysis on mid-range phones</li>
+              <li>Fixed gapless playback on Android 14+</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FAQ ===== -->
+    <section class="section section-alt" id="faq">
+      <div class="container faq-wrap">
+        <p class="section-kicker reveal">Questions</p>
+        <h2 class="reveal">Frequently asked <span class="gradient-text">questions</span></h2>
+        <div class="faq-list">
+          <details class="faq reveal" open><summary>Is VocalPure really free?</summary><p>Yes. The player, vocal isolation, analyzer and karaoke mode are all free with no time limits. An optional “Supporter” tip inside the app removes the single download-page reminder — that's it.</p></details>
+          <details class="faq reveal"><summary>Is the APK safe to install?</summary><p>Yes. Every release is built reproducibly, signed with our official key, scanned for malware, and published with a SHA-256 checksum you can verify. The app only requests access to your music files.</p></details>
+          <details class="faq reveal"><summary>Why isn't it on the Play Store?</summary><p>We're preparing our Play Store listing. Direct APK lets us ship AI-model updates weekly instead of waiting weeks for review. The APK is identical to what the store version will be.</p></details>
+          <details class="faq reveal"><summary>Does vocal removal work offline?</summary><p>Completely. The AI model downloads once (~120 MB) and then runs on-device — even in airplane mode. Your songs are never uploaded anywhere.</p></details>
+          <details class="faq reveal"><summary>Which audio formats are supported?</summary><p>MP3, FLAC, WAV, M4A/AAC, OGG and OPUS for playback and separation. You can export isolated vocals as WAV (lossless) or MP3.</p></details>
+          <details class="faq reveal"><summary>Is there an iPhone version?</summary><p>Not yet — Android first. Join the beta channel above and enable “Notify me about iOS” in settings to get notified at launch.</p></details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Final CTA ===== -->
+    <section class="section final-cta">
+      <div class="container">
+        <div class="cta-box reveal">
+          <h2>Ready to hear the <span class="gradient-text">pure voice</span>?</h2>
+          <p>Join 500,000+ singers, creators and music lovers. Free forever, takes 20 seconds to install.</p>
+          <a href="#download" class="btn btn-primary btn-lg">Download VocalPure APK</a>
+          <p class="cta-note">v<span data-app="versionPlain">2.4.1</span> · <span data-app="size">—</span> · Android 8.0+ · SHA-256 verified</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Footer ===== -->
+  <footer class="site-footer">
+    <div class="container footer-grid">
+      <div class="footer-brand">
+        <span class="brand-name">Vocal<em>Pure</em></span>
+        <p>AI vocal remover &amp; music player for Android. Made for singers, creators and dreamers.</p>
+      </div>
+      <nav aria-label="Product"><h4>Product</h4><a href="#features">Features</a><a href="#demo">Live demo</a><a href="#download">Download</a><a href="#faq">FAQ</a></nav>
+      <nav aria-label="Resources"><h4>Resources</h4><a href="#how">How it works</a><a href="#screens">Screenshots</a><a href="#download">Beta channel</a><a href="#download">Changelog</a></nav>
+      <nav aria-label="Legal"><h4>Legal</h4><a href="#" id="link-privacy">Privacy</a><a href="#" id="link-terms">Terms</a><a href="#" id="link-contact">Contact</a></nav>
+    </div>
+    <div class="container footer-bottom">
+      <p>© <span id="year">2026</span> VocalPure. All rights reserved. · Only separate vocals from music you own or have the right to remix.</p>
+    </div>
+  </footer>
+
+  <!-- ===== Background customizer ===== -->
+  <button class="customizer-fab" id="customizer-fab" aria-label="Customize background" aria-expanded="false" aria-controls="customizer-panel" title="Customize background">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 019 9c0 2-1.5 3-3 3h-2a2 2 0 00-1.5 3.3c.6.7.2 2.7-2.5 2.7A9 9 0 0112 3z"/><circle cx="7.8" cy="10.5" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.2" cy="10.5" r="1.2" fill="currentColor"/></svg>
+  </button>
+
+  <aside class="customizer" id="customizer-panel" aria-label="Background customizer" hidden>
+    <div class="customizer-head">
+      <h3>Background Studio</h3>
+      <button type="button" class="customizer-close" id="customizer-close" aria-label="Close customizer">✕</button>
+    </div>
+    <div class="customizer-body">
+      <p class="cust-label">Theme presets</p>
+      <div class="preset-grid" id="preset-grid" role="group" aria-label="Theme presets">
+        <button type="button" class="preset is-active" data-preset="nebula" style="--p1:#a855f7;--p2:#3b82f6"><span>Nebula</span></button>
+        <button type="button" class="preset" data-preset="midnight" style="--p1:#22d3ee;--p2:#1e3a8a"><span>Midnight</span></button>
+        <button type="button" class="preset" data-preset="royal" style="--p1:#c084fc;--p2:#6d28d9"><span>Royal</span></button>
+        <button type="button" class="preset" data-preset="abyss" style="--p1:#38bdf8;--p2:#0ea5e9"><span>Abyss</span></button>
+        <button type="button" class="preset" data-preset="sunset" style="--p1:#f472b6;--p2:#8b5cf6"><span>Sunset</span></button>
+        <button type="button" class="preset" data-preset="emerald" style="--p1:#34d399;--p2:#3b82f6"><span>Aurora</span></button>
+      </div>
+
+      <label class="cust-row"><span>Animate background</span><button type="button" class="switch is-on" id="cust-animate" role="switch" aria-checked="true" aria-label="Animate background"><i></i></button></label>
+      <label class="cust-row"><span>Particle connections</span><button type="button" class="switch is-on" id="cust-links" role="switch" aria-checked="true" aria-label="Particle connections"><i></i></button></label>
+
+      <label class="cust-slider"><span>Particles <b id="cust-particles-val">110</b></span><input type="range" id="cust-particles" min="0" max="220" value="110" /></label>
+      <label class="cust-slider"><span>Speed <b id="cust-speed-val">1.0×</b></span><input type="range" id="cust-speed" min="0" max="300" value="100" /></label>
+      <label class="cust-slider"><span>Glow <b id="cust-glow-val">70%</b></span><input type="range" id="cust-glow" min="0" max="100" value="70" /></label>
+      <label class="cust-slider"><span>Color shift <b id="cust-hue-val">0°</b></span><input type="range" id="cust-hue" min="0" max="360" value="0" /></label>
+
+      <p class="cust-label">Custom accent colors</p>
+      <div class="cust-colors">
+        <label>Accent 1 <input type="color" id="cust-c1" value="#a855f7" /></label>
+        <label>Accent 2 <input type="color" id="cust-c2" value="#3b82f6" /></label>
+      </div>
+
+      <p class="cust-label">Your own wallpaper</p>
+      <div class="cust-upload">
+        <label class="btn btn-ghost btn-sm btn-block" for="cust-file">Upload image</label>
+        <input type="file" id="cust-file" accept="image/*" hidden />
+        <button type="button" class="btn btn-ghost btn-sm btn-block" id="cust-remove">Remove image</button>
+      </div>
+      <label class="cust-slider"><span>Image visibility <b id="cust-imgop-val">45%</b></span><input type="range" id="cust-imgop" min="0" max="100" value="45" /></label>
+      <label class="cust-slider"><span>Image blur <b id="cust-blur-val">2px</b></span><input type="range" id="cust-blur" min="0" max="20" value="2" /></label>
+
+      <button type="button" class="btn btn-ghost btn-sm btn-block" id="cust-reset">Reset to defaults</button>
+      <p class="cust-note">Your design is saved automatically on this device.</p>
+    </div>
+  </aside>
+
+  <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+
+  <script src="js/background.js" defer></script>
+  <script src="js/app.js" defer></script>
+</body>
+</html>
