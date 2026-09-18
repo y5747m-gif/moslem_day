@@ -78,7 +78,8 @@
 
   /* ---------------- canvas particles ---------------- */
   var canvas = document.getElementById("bg-canvas");
-  var ctx = canvas ? canvas.getContext("2d") : null;
+  var ctx = null;
+  try { ctx = canvas ? canvas.getContext("2d") : null; } catch (e) { ctx = null; }
   var W = 0, H = 0, DPR = 1;
   var parts = [];
   var rafId = null;

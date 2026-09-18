@@ -35,8 +35,12 @@ if [ ! -d dxclasses ]; then
   SRC=$(find . -maxdepth 2 -type d -name BlackObfuscator-* | head -1)/dx/src/main/java
   JAVA=${VP_JAVA:?set VP_JAVA to a java binary}
   TOOLSJAR="$PWD/tools.jar"
+  mkdir -p dxclasses
+  # NOTE: -bootclasspath points at android.jar so javac8 finds java.lang
+  # when tools.jar runs on a modern JRE (9+) that has no rt.jar.
   $JAVA -Dsun.boot.class.path= -cp "$TOOLSJAR" com.sun.tools.javac.Main \
-        -encoding UTF-8 -source 8 -target 8 -nowarn -d dxclasses \
+        -encoding UTF-8 -bootclasspath "$PWD/android.jar" \
+        -source 8 -target 8 -nowarn -d dxclasses \
         $(find "$SRC" -name '*.java')
   rm -rf bo.tgz BlackObfuscator-*
 fi

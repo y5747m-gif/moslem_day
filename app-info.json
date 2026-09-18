@@ -1,20 +1,20 @@
 {
-  "version": "v2.4.1",
-  "versionPlain": "2.4.1",
-  "betaVersion": "v2.5.0-beta.2",
-  "size": "130 KB",
-  "betaSize": "130 KB",
+  "version": "v2.6.0",
+  "versionPlain": "2.6.0",
+  "betaVersion": "v2.7.0-beta.1",
+  "size": "145 KB",
+  "betaSize": "145 KB",
   "updated": "Sep 18, 2026",
   "minAndroid": "8.0+",
-  "sha256": "870dbd4d72e0a30abf826d838c16e73fb9eebf1106f9c6c4d033178698b4a366",
-  "betaSha256": "2e34e6dff4c307832b96db0bcd072e8fc76c2c7571f923203a1353322d5d32e4",
-  "stableFile": "downloads/VocalPure-v2.4.1.apk",
-  "betaFile": "downloads/VocalPure-v2.5.0-beta.2.apk",
+  "sha256": "24c4c1ae43058d44e23ca3359472064a92c59cc863f9a45626ac841028f35159",
+  "betaSha256": "6e33e955444badc8a0a03a592118af53fc0d36bb0a99ae9ebc0875ea6823dd45",
+  "stableFile": "downloads/VocalPure-v2.6.0.apk",
+  "betaFile": "downloads/VocalPure-v2.7.0-beta.1.apk",
   "changelog": [
-    "Now ships as a real installable app — the full VocalPure player is bundled and works offline",
-    "Vocal isolation rebuilt: every song is supported — stereo via center-channel extraction, mono via frequency-focus",
-    "Karaoke mode now returns the bass/kick so the beat keeps driving",
-    "Automatic loudness matching and a safety limiter — isolated stems never clip",
-    "Clearer status messages show which isolation engine is active"
+    "Full Lark-style music player: library, playlists, favorites, shuffle & repeat, sleep timer, playback speed",
+    "Every song splits into two tracks — vocals + music — with a live stem mixer (mute, solo, levels)",
+    "5-band equalizer with presets incl. Vocal Boost, plus WAV export for vocals, karaoke and custom mixes",
+    "Your library is saved on-device and restored automatically; multi-file import on Android",
+    "New sticky mini-player and refreshed now-playing screen"
   ]
 }
