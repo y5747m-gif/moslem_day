@@ -1,0 +1,20 @@
+{
+  "version": "v2.4.1",
+  "versionPlain": "2.4.1",
+  "betaVersion": "v2.5.0-beta.2",
+  "size": "674 B",
+  "betaSize": "680 B",
+  "updated": "Sep 17, 2026",
+  "minAndroid": "8.0+",
+  "sha256": "ed7afe89b46900285ca0dcb5c76da7b7ace40af5d077e6346a7e89634942e5e8",
+  "betaSha256": "c4936737e0e152b10ae0a8c10c5ec8a952cbd180d9c675afe021541500749a8f",
+  "stableFile": "downloads/VocalPure-v2.4.1.apk",
+  "betaFile": "downloads/VocalPure-v2.5.0-beta.2.apk",
+  "changelog": [
+    "New \"PureVoice v3\" AI model \u2014 31% cleaner vocals",
+    "Karaoke mode with real-time lyric sync",
+    "FLAC / OPUS export for isolated stems",
+    "40% faster analysis on mid-range phones",
+    "Fixed gapless playback on Android 14+"
+  ]
+}
