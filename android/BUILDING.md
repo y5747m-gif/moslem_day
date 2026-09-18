@@ -24,10 +24,10 @@ export VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ## Build + sync
 
 ```bash
-./android/sync_assets.sh                # copies the site into android/assets/www
+./android/sync_assets.sh                # copies the standalone app (app/) into android/assets/www
 python3 android/build_apk.py \
-    --version-name 2.4.1 --version-code 241 \
-    --out downloads/VocalPure-v2.4.1.apk
+    --version-name 2.7.0 --version-code 270 \
+    --out downloads/VocalPure-v2.7.0.apk
 ```
 
 Every build is verified inside the script:

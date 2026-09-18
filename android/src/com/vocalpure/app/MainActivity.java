@@ -3,9 +3,12 @@ package com.vocalpure.app;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -13,12 +16,18 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * VocalPure — minimal WebView host for the bundled site.
+ * VocalPure — host for the standalone VocalPure player app.
  *
- * The entire site (player UI + live vocal-isolation engine) ships inside
- * the APK under assets/www and runs 100% offline. A tiny JS bridge lets
- * the page know it is running inside the installed app.
+ * The app UI + player engine + adaptive vocal-isolation engine ship inside
+ * the APK under assets/www and run 100% offline. A small JS bridge exposes
+ * the app identity (version) and a chunked base64 file writer used by the
+ * WAV export (files land in Android/data/com.vocalpure.app/files/Music).
  */
 public class MainActivity extends Activity {
 
@@ -31,21 +40,21 @@ public class MainActivity extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(Color.parseColor("#05060F"));
-        getWindow().setNavigationBarColor(Color.parseColor("#05060F"));
+        getWindow().setStatusBarColor(Color.parseColor("#0b0b0e"));
+        getWindow().setNavigationBarColor(Color.parseColor("#0b0b0e"));
 
         web = new WebView(this);
-        web.setBackgroundColor(Color.parseColor("#05060F"));
+        web.setBackgroundColor(Color.parseColor("#0b0b0e"));
 
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
-        // The site is our own bundled content; it needs fetch()/XHR access
-        // to its asset files (app-info.json) from the file:// origin.
+        // The app is our own bundled content; it needs fetch()/XHR access to
+        // its asset files (app-info.json) from the file:// origin.
         s.setAllowFileAccessFromFileURLs(true);
         s.setAllowUniversalAccessFromFileURLs(true);
-        // Isolation demo should keep playing when re-entering the app.
+        // Playback should keep working when re-entering the app.
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
@@ -131,17 +140,71 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
-    /** Exposes app identity to the bundled page (window.VocalPureAndroid). */
+    /** Exposes app identity + the WAV-export file writer to the bundled page. */
     private class AppBridge {
+
         @JavascriptInterface
         public String appInfo() {
             String versionName = "unknown";
+            int versionCode = 0;
             try {
-                versionName = getPackageManager()
-                        .getPackageInfo(getPackageName(), 0).versionName;
+                PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+                versionName = pi.versionName;
+                versionCode = pi.versionCode;
             } catch (Exception ignored) {
             }
-            return "{\"inApp\":true,\"versionName\":\"" + versionName + "\"}";
+            return "{\"inApp\":true,\"versionName\":\"" + versionName
+                    + "\",\"versionCode\":" + versionCode + "}";
+        }
+
+        /**
+         * Chunked base64 file writer for WAV exports. The JS side streams
+         * ~1.5 MB base64 chunks; the native side appends them to a file in
+         * the app's external Music dir (no permissions needed).
+         *
+         * @return "ok" while streaming, "ok:<absolute path>" on the final
+         *         chunk, "error:<message>" on failure.
+         */
+        @JavascriptInterface
+        public String writeFile(final String name, String base64Chunk, final boolean finalChunk) {
+            synchronized (openWrites) {
+                try {
+                    String safe = sanitize(name);
+                    File dir = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+                    if (dir == null) dir = getFilesDir();
+                    if (!dir.exists() && !dir.mkdirs()) {
+                        return "error:could not create directory";
+                    }
+                    final File target = new File(dir, safe);
+                    FileOutputStream fos = openWrites.get(safe);
+                    if (fos == null) {
+                        fos = new FileOutputStream(target);
+                        openWrites.put(safe, fos);
+                    }
+                    if (base64Chunk != null && !base64Chunk.isEmpty()) {
+                        fos.write(Base64.decode(base64Chunk, Base64.DEFAULT));
+                    }
+                    if (finalChunk) {
+                        fos.close();
+                        openWrites.remove(safe);
+                        return "ok:" + target.getAbsolutePath();
+                    }
+                    return "ok";
+                } catch (Exception e) {
+                    return "error:" + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                }
+            }
+        }
+
+        private String sanitize(String name) {
+            if (name == null) return "vocalpure-export.wav";
+            String s = name.trim().replaceAll("[\\\\/:*?\"<>|\\x00-\\x1f]", "_");
+            if (s.length() > 180) s = s.substring(0, 180);
+            if (s.isEmpty()) s = "vocalpure-export.wav";
+            return s;
         }
     }
+
+    /** Files currently being streamed from the JS bridge. */
+    private static final Map<String, FileOutputStream> openWrites = new HashMap<String, FileOutputStream>();
 }
