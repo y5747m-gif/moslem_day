@@ -1,139 +1,152 @@
-# VocalPure — APK Download Website + Lark-style Music Player
+# VocalPure — Download site + standalone Android music player
 
-A polished, fully static website for downloading the **VocalPure** Android
-app — a complete music player (like Lark Player) whose exclusive advantage
-is that it **splits every song into two tracks**: 🎤 **Vocals** (lyrics)
-and 🎶 **Music** (instruments).
+VocalPure is an Android music player whose exclusive advantage is that it
+**splits every song into two tracks**: 🎤 **Vocals** (lyrics) and 🎶
+**Music** (instruments) — in real time, on device, offline.
 
-No build step, no dependencies, no backend for the site itself. Just open
-it in a browser or serve the folder with any static file server.
+The project has two completely separate parts:
 
-## The player (works right here in the browser)
+1. **The website** (repo root) — a polished, fully static **download
+   interface only**. It introduces the app, shows the real APK metadata
+   (version, size, SHA-256, changelog), install guide, QR code, and a
+   customizable animated background. **It contains no music player and no
+   demo music** — everything playable lives in the app.
+2. **The Android app** (`app/` → built into `downloads/*.apk`) — a
+   **standalone music player** with its own UI, identity and feature set.
+   It does **not** bundle the website: only the four `app/` files go into
+   the APK.
 
-The `#demo` section is a full music player, not a mockup:
+## The app — features
 
-- **Library like Lark Player** — add multiple songs (drag & drop or file
-  picker), search, sort (recent / title / artist / duration), auto-parsed
-  “Artist – Title” names. The library (audio included) is stored in
-  IndexedDB and restored on reload, fully offline.
-- **Playlists & favorites** — create playlists, tap ＋ on any song to add
-  it, star favorites; all persisted on-device.
-- **Transport** — previous / play / next, shuffle, repeat (off / all /
-  one), seek bar, volume + mute, playback speed (0.5×–2×), sleep timer,
-  “Up next” queue, and a sticky mini-player while you browse the page.
-- **Two-track splitter** — every song is separated live into a vocal stem
-  and a music stem with independent level faders, per-stem **mute** and
-  **solo**, and one-tap presets: *Original / 🎤 Vocals only / 🎶 Karaoke /
-  🎚 My mix*. Remove the instruments and keep only the lyrics — or remove
-  the voice and sing karaoke.
-- **5-band equalizer** — 60 Hz – 14 kHz with presets (Pop, Rock, Jazz,
-  Bass Boost, Vocal Boost, …), applied to everything you hear.
-- **WAV export** — render vocals-only, karaoke, or your custom mix to a
-  downloadable `.wav` file (offline render, nothing uploaded).
+- **Library** — import multiple songs at once (file picker, drag & drop),
+  auto-parsed “Artist – Title” names, generated covers, duration, sort by
+  title/artist/date, remove. Library (audio included) stored in IndexedDB,
+  restored on launch, fully offline.
+- **Now-playing screen** — live frequency visualizer, seek bar, prev /
+  play / next, shuffle, repeat (off / all / one), playback speed 0.5×–2×,
+  volume + mute, sleep timer (15/30/60 min).
+- **Search** — instant title/artist filter with match count.
+- **Playlists & favorites** — create/rename/delete playlists, star
+  favorites; all persisted on-device. **Queue** — live “Up next” list.
+- **Vocal / music splitter (4 modes)** — *Original / 🎤 Vocals only /
+  🎶 Karaoke / 🎚 My mix* with independent stem faders, per-stem **mute**
+  and **solo**.
+- **5-band equalizer** — 60 Hz – 14 kHz with presets (Flat, Pop, Rock,
+  Jazz, Bass Boost, Vocal Boost, …).
+- **WAV export** — render vocals-only, karaoke or your custom mix to
+  `.wav`. In the app the file is written straight to the phone
+  (`…/Android/data/com.vocalpure.app/files/Music/VocalPure/`) via a native
+  bridge — no download-page round trip.
+- **Offline & private** — no network calls at all after launch; songs
+  never leave the device.
 
-## Site features
+## The website — features
 
-- **Eye-catching design** — deep black-blue canvas with harmonious purple/blue
-  gradients, glassmorphism cards, and animated phone mockups.
-- **Moving background** — drifting gradient orbs, grid glow, and an interactive
-  canvas particle field with constellation links.
-- **Background Studio** (paint-palette button, bottom-right) — visitors can:
-  - pick from 6 theme presets or set their own accent colors,
-  - toggle animation and particle connections,
-  - adjust particle count, speed, glow and color shift,
-  - upload their **own wallpaper image** (opacity + blur controls),
-  - everything auto-saves in `localStorage`.
-- **Download center** — stable + beta APK cards, live file size/version from
-  `app-info.json`, SHA-256 display, copy-link button, install guide, QR code,
-  requirements and changelog.
-- **Mobile-friendly** — responsive layout, hamburger menu, touch-ready controls.
-- **Accessible** — semantic HTML, ARIA labels, keyboard-operable transport,
-  `prefers-reduced-motion` support.
+- **Download center** — stable + beta APK cards, live metadata from
+  `app-info.json`, SHA-256 display, copy-link button, install guide,
+  requirements and changelog, QR code pointing at the APK URL.
+- **Animated background** — drifting gradient orbs, grid glow and an
+  interactive canvas particle field; **Background Studio** (bottom-right)
+  to pick 6 theme presets or custom accents, tune particles, or upload a
+  wallpaper — saved in `localStorage`.
+- Responsive, accessible (ARIA, keyboard, `prefers-reduced-motion`).
 
 ## Project structure
 
 ```
-├── index.html              # entire site (player + customizer + footer)
-├── css/style.css           # theme, layout, player UI, animations, responsive
+├── index.html              # download site (no player, no demo music)
+├── css/style.css           # site theme, layout, animations, responsive
 ├── js/
-│   ├── background.js       # particle engine + Background Studio + persistence
-│   └── app.js              # nav, reveal, downloads, full music-player engine
+│   ├── background.js       # particle engine + Background Studio
+│   └── app.js              # site logic: nav, reveal, downloads, QR
 ├── app-info.json           # release metadata (single source of truth for
 │                           # version, sizes, checksums, changelog)
+├── app/                    # the STANDALONE app (what the APK contains)
+│   ├── index.html          # player shell: library/search/playlists/settings
+│   ├── style.css           # its own UI theme (warm amber/coral)
+│   ├── app.js              # player + adaptive vocal-isolation engine
+│   └── app-info.json       # in-APK version/changelog fallback
 ├── android/                # APK build pipeline (no Android SDK needed)
 │   ├── build_apk.py        # aapt2 → javac/dx → zip → v1+v2+v3 signing
 │   ├── verify_apk.py       # independent re-implementation of AOSP verifiers
 │   ├── bootstrap_tools.sh  # fetches/compiles the toolchain (see BUILDING.md)
-│   ├── sync_assets.sh      # bundles the website into the app (assets/www)
-│   └── keystore/           # release signing key (intentionally committed —
-│                           #  see keystore/README.md)
+│   ├── sync_assets.sh      # bundles app/ (only!) into assets/www
+│   └── keystore/           # release signing key (intentionally committed)
 └── downloads/
-    ├── VocalPure-v2.6.0.apk        # signed, installable app (Android 8.0+)
-    └── VocalPure-v2.7.0-beta.1.apk # signed beta build
+    ├── VocalPure-v2.7.0.apk        # signed stable app (Android 8.0+)
+    └── VocalPure-v2.8.0-beta.1.apk # signed beta build
 ```
 
-## Run locally
+## Run the website locally
 
 ```bash
-cd moslem_day
 python3 -m http.server 8080
 # open http://localhost:8080
 ```
 
-(Any static server works: `npx serve`, Nginx, GitHub Pages, Netlify, …)
+Any static server works (`npx serve`, Nginx, GitHub Pages, Netlify, …).
+The app can also be opened directly in a desktop browser for testing:
+`http://localhost:8080/app/`.
 
-## The Android app
-
-`downloads/*.apk` are **real signed APKs** built by `android/build_apk.py` —
-a WebView host that bundles the entire website (full player, splitter,
-equalizer, Background Studio) and runs it 100% offline. Installation
-requires Android 8.0+; enable "install from unknown sources" when prompted.
-The file picker supports selecting **multiple songs at once**.
-
-Rebuild after changing the site:
+## Building the APK
 
 ```bash
 export VP_TOOLS=$HOME/.vp-tools VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ./android/sync_assets.sh
-python3 android/build_apk.py --version-name 2.6.0 --version-code 260 \
-    --out downloads/VocalPure-v2.6.0.apk
+python3 android/build_apk.py --version-name 2.7.0 --version-code 270 \
+    --out downloads/VocalPure-v2.7.0.apk
 python3 android/verify_apk.py downloads/*.apk
 ```
-
-Then update `app-info.json` (`size`, `sha256`, `updated`, `changelog`) —
-the website picks everything up automatically. (The APK signature embeds a
-timestamp, so the `app-info.json` *inside* the APK is always one build
-behind the repo copy — this is expected and harmless: in-app version labels
-come from the native bridge, and the download center is hidden in-app.)
 
 One-time toolchain setup (`pip install jdk4py`, then
 `./android/bootstrap_tools.sh`) is documented in `android/BUILDING.md`.
 
-## Vocal isolation — how it works
+After a build, update `app-info.json` (`size`, `sha256`, `updated`,
+`changelog`) — the website picks everything up automatically. The APK
+bunds its own `app-info.json` (used by the app as a version fallback when
+the native bridge is unavailable), while the in-app version labels come
+from the native `AppBridge.appInfo()`.
 
-The same engine powers the site player and the installed app:
+## Vocal isolation — adaptive engine
 
-* **Stereo songs** — center-channel extraction: vocals are mixed to the
-  center, so the vocal stem keeps the mid signal (band-shaped, 85 Hz–
-  11.5 kHz) while the music stem keeps the side signal plus a low-passed
-  copy of the mid so the bass/kick survives in karaoke mode.
-* **Mono songs** — there is no side signal at all, so a frequency-focus
-  fallback isolates the vocal band (170 Hz–4.3 kHz) for the vocal stem and
-  removes it for the music stem. Every track gets *some* isolation —
-  nothing is a no-op.
-* Both stems are mixed live (your fader positions), run through a
-  compressor/limiter with makeup gain, then through the 5-band EQ — loud,
-  balanced, and never clipping.
+Each imported song is analyzed offline with an on-device FFT (radix-2,
+1024 samples, up to a 6-second window at a random offset) that measures:
+
+- **centerRatio** — how much of the vocal band (170 Hz–4.3 kHz) energy
+  sits in the center channel, and
+- **bandFocus** — how much of the whole track's energy lives in that band.
+
+The strongest strategy is then selected **per song**:
+
+| Strategy | When | How |
+|---|---|---|
+| **Center extraction** | centerRatio ≥ 0.62 | Vocals = band-shaped mid (3 sub-bands, presence boost +2.5 dB @ 2.7 kHz); Music = side signal + low-passed mid so bass/kick survive. |
+| **Center blend** | centerRatio ≥ 0.40 | Same chains, but vocals add a low-passed side return and music adds a center return with a vocal-band dip — smoother when the vocal isn't perfectly center-locked. |
+| **Frequency focus** | mono or low center ratio | Vocals = band-pass 170 Hz–4.3 kHz with presence tilt; Music = band-reject of the same window with a high-shelf lift and a deeper mono notch. |
+
+Every track therefore gets real, signal-adaptive isolation — nothing is
+a no-op — and the engine reports its pick + estimated clarity in the
+now-playing screen (“Strategy: center extraction · 81% of the vocal band
+is center-locked · est. clarity 80%”). Stems are mixed live, then
+compressed/limited with makeup gain and run through the 5-band EQ.
+Export renders the exact same chain in an `OfflineAudioContext` to
+16-bit PCM WAV.
+
+> Note: this is spectral/channel-based isolation, not a deep-learning
+> stem model — so results are best on mixed stereo recordings, as
+> described. Use only on music you own or have the right to remix.
 
 ## Checks run on this repo
 
-- `node --check` on both JS bundles (syntax).
-- HTML tag-balance validation + every `getElementById` target verified present.
+- `node --check` on all four JS bundles (site ×2, app ×2).
+- HTML tag-balance validation + every `getElementById` target verified
+  present in both the site and the app.
 - Every local `href`/`src` reference verified to exist on disk.
-- Headless DOM tests (jsdom): library tabs, playlists, transport, all four
-  split modes on stereo + mono graphs, stem mixer, EQ, sleep timer, WAV
-  export — zero runtime errors.
-- Served over HTTP and fetched every asset (`index.html`, CSS, JS, JSON, APKs).
-- APKs verified with `android/verify_apk.py` (v2/v3 digests + RSA signatures
-  + certificate match) and androguard (v1+v2+v3 present); SHA-256 on disk
-  verified to match `app-info.json`.
+- Headless DOM tests (jsdom, `/.apptest` harness): app — import, play,
+  FFT analysis, all four modes, stem mixer, EQ, search, playlists,
+  favorites, transport, settings, export, delete (42 checks); site —
+  metadata filling, download links, no-player assertions (15 checks).
+- APKs verified with `android/verify_apk.py` (v2/v3 digests + RSA
+  signatures + certificate match) **and** androguard (v1+v2+v3 present,
+  manifest fields, bundled-asset listing — no website content inside);
+  SHA-256 on disk matches `app-info.json`.

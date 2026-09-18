@@ -1,20 +1,20 @@
 {
-  "version": "v2.6.0",
-  "versionPlain": "2.6.0",
-  "betaVersion": "v2.7.0-beta.1",
-  "size": "145 KB",
-  "betaSize": "145 KB",
+  "version": "v2.7.0",
+  "versionPlain": "2.7.0",
+  "betaVersion": "v2.8.0-beta.1",
+  "size": "130 KB",
+  "betaSize": "130 KB",
   "updated": "Sep 18, 2026",
   "minAndroid": "8.0+",
-  "sha256": "24c4c1ae43058d44e23ca3359472064a92c59cc863f9a45626ac841028f35159",
-  "betaSha256": "6e33e955444badc8a0a03a592118af53fc0d36bb0a99ae9ebc0875ea6823dd45",
-  "stableFile": "downloads/VocalPure-v2.6.0.apk",
-  "betaFile": "downloads/VocalPure-v2.7.0-beta.1.apk",
+  "sha256": "950d9d329fb93e19ce262e4d1e7d3c63bd7201bcefc126827e130c6067d4e23f",
+  "betaSha256": "274e07c1b90b7b3db921ecc8d7969b51369eca77ef0a46fe5fd69d4920553fe7",
+  "stableFile": "downloads/VocalPure-v2.7.0.apk",
+  "betaFile": "downloads/VocalPure-v2.8.0-beta.1.apk",
   "changelog": [
-    "Full Lark-style music player: library, playlists, favorites, shuffle & repeat, sleep timer, playback speed",
-    "Every song splits into two tracks — vocals + music — with a live stem mixer (mute, solo, levels)",
-    "5-band equalizer with presets incl. Vocal Boost, plus WAV export for vocals, karaoke and custom mixes",
-    "Your library is saved on-device and restored automatically; multi-file import on Android",
-    "New sticky mini-player and refreshed now-playing screen"
+    "Standalone app — completely separate from the download website, with its own player UI",
+    "Adaptive isolation engine: every song is analyzed with FFT and the strongest strategy is picked per track (center extraction / center blend / frequency focus)",
+    "Cleaner vocals: 3-band mid extraction with presence boost; sharper karaoke with bass return and deeper mono notch",
+    "Full player: library, search, playlists, favorites, queue, 5-band EQ, sleep timer, playback speed",
+    "WAV export saves straight to your phone (Music/VocalPure) — no download-page round trip"
   ]
 }
