@@ -1,20 +1,18 @@
 {
-  "version": "v2.6.0",
-  "versionPlain": "2.6.0",
-  "betaVersion": "v2.7.0-beta.1",
-  "size": "145 KB",
-  "betaSize": "145 KB",
+  "version": "v3.0.0",
+  "versionPlain": "3.0.0",
+  "size": "134 KB",
   "updated": "Sep 18, 2026",
   "minAndroid": "8.0+",
-  "sha256": "24c4c1ae43058d44e23ca3359472064a92c59cc863f9a45626ac841028f35159",
-  "betaSha256": "6e33e955444badc8a0a03a592118af53fc0d36bb0a99ae9ebc0875ea6823dd45",
-  "stableFile": "downloads/VocalPure-v2.6.0.apk",
-  "betaFile": "downloads/VocalPure-v2.7.0-beta.1.apk",
+  "sha256": "7adce54835a8c2837215150b8147a35283db2d3ce86b0e23abd47710aad225cf",
+  "file": "downloads/VocalPure-v3.0.0.apk",
   "changelog": [
-    "Full Lark-style music player: library, playlists, favorites, shuffle & repeat, sleep timer, playback speed",
-    "Every song splits into two tracks — vocals + music — with a live stem mixer (mute, solo, levels)",
-    "5-band equalizer with presets incl. Vocal Boost, plus WAV export for vocals, karaoke and custom mixes",
-    "Your library is saved on-device and restored automatically; multi-file import on Android",
-    "New sticky mini-player and refreshed now-playing screen"
+    "Brand-new standalone app: the player is now fully separate from the website, which is a pure download page",
+    "Rebuilt isolation engine \u2014 3-way crossover removes the centered voice from the mid band only, so bass below 130 Hz and highs above 9 kHz stay untouched",
+    "Adjustable isolation strength (0\u2013100%) with live effect while music plays",
+    "Automatic stereo detection (channel-correlation analysis) with a smooth no-hole mono fallback",
+    "Library with songs, artists, playlists, favorites, search & sorting; up-next queue with shuffle & repeat",
+    "New now-playing screen, mini-player, sleep timer, playback speed and 5-band equalizer",
+    "WAV export (vocals / karaoke / your mix) saved directly to your device's Music folder"
   ]
 }
