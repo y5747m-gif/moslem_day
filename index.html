@@ -38,7 +38,7 @@
       <nav class="main-nav" id="main-nav" aria-label="Main navigation">
         <a href="#features">Features</a>
         <a href="#how">How it works</a>
-        <a href="#demo">Live demo</a>
+        <a href="#demo">Music player</a>
         <a href="#screens">Screens</a>
         <a href="#faq">FAQ</a>
         <a href="#download" class="btn btn-primary btn-sm nav-cta">Download APK</a>
@@ -54,7 +54,7 @@
     <section class="hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="badge reveal"><span class="pulse-dot" aria-hidden="true"></span><span id="hero-version">v2.4.1 · Android 8.0+ · 100% Free</span></p>
+          <p class="badge reveal"><span class="pulse-dot" aria-hidden="true"></span><span id="hero-version">v2.6.0 · Android 8.0+ · 100% Free</span></p>
           <h1 class="reveal">Hear Only the Voice.<br /><span class="gradient-text">Feel Every Word.</span></h1>
           <p class="lead reveal">VocalPure is an AI-powered music player that analyzes any song, strips away the instrumental track, and keeps <strong>crystal-clear isolated vocals</strong> — perfect for karaoke, singing practice, remixes, and study.</p>
           <div class="hero-actions reveal">
@@ -64,7 +64,7 @@
             </a>
             <a href="#demo" class="btn btn-ghost btn-lg">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>
-              Try live demo
+              Open music player
             </a>
           </div>
           <ul class="hero-trust reveal" aria-label="Highlights">
@@ -116,13 +116,13 @@
         <div class="features-grid">
           <article class="card reveal">
             <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10m0 0a3 3 0 103 3M12 13a3 3 0 10-3 3"/><rect x="5" y="3" width="14" height="11" rx="3"/><path d="M8 21h8"/></svg></div>
-            <h3>AI Vocal Isolation</h3>
-            <p>Neural stem separation analyzes every song and removes drums, bass, guitars and synths — keeping only pure, studio-clean vocals.</p>
+            <h3>Two-Track Splitter</h3>
+            <p>Every song is split into <strong style="color:#fff">two tracks — 🎤 Vocals and 🎶 Music</strong>. Mute the instruments and keep only the lyrics, or mute the voice for karaoke. Mix both stems freely with the built-in mixer.</p>
           </article>
           <article class="card reveal">
             <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg></div>
-            <h3>Full Music Player</h3>
-            <p>Playlists, favorites, sleep timer, gapless playback and a 10-band equalizer. Your whole library, beautifully organized.</p>
+            <h3>Full Music Player — like Lark Player</h3>
+            <p>Song library, playlists, favorites, shuffle &amp; repeat, sleep timer, playback speed and a 5-band equalizer. Everything a top music player has — plus the vocal splitter.</p>
           </article>
           <article class="card reveal">
             <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20V7"/></svg></div>
@@ -156,57 +156,192 @@
         <div class="steps">
           <article class="step reveal"><span class="step-num" aria-hidden="true">1</span><h3>Install the APK</h3><p>Download below and tap install. No root, no Play account, no permissions beyond your music folder.</p></article>
           <article class="step reveal"><span class="step-num" aria-hidden="true">2</span><h3>Import your music</h3><p>VocalPure auto-discovers songs on your phone, or import any audio file in one tap.</p></article>
-          <article class="step reveal"><span class="step-num" aria-hidden="true">3</span><h3>Tap “Isolate Vocals”</h3><p>The AI analyzer separates the track into stems and mutes every instrument in real time.</p></article>
+          <article class="step reveal"><span class="step-num" aria-hidden="true">3</span><h3>Tap “Split Tracks”</h3><p>The analyzer splits the song into two tracks — vocals and music. Slide the mixer to keep only the lyrics, or only the band.</p></article>
           <article class="step reveal"><span class="step-num" aria-hidden="true">4</span><h3>Play, save &amp; share</h3><p>Listen instantly, fine-tune with the vocal booster EQ, then export or share your mix.</p></article>
         </div>
       </div>
     </section>
 
-    <!-- ===== Live demo ===== -->
+    <!-- ===== Music player (Lark-style + two-track vocal splitter) ===== -->
     <section class="section" id="demo">
       <div class="container">
-        <p class="section-kicker reveal">Interactive preview</p>
-        <h2 class="reveal">Try vocal isolation <span class="gradient-text">right here</span></h2>
-        <p class="section-sub reveal">Upload any stereo song — or generate our built-in demo mix — and switch between <strong>Original</strong>, <strong>Vocals&nbsp;only</strong> and <strong>Karaoke</strong> (instruments only). Everything runs locally in your browser; nothing is uploaded.</p>
+        <p class="section-kicker reveal">Interactive preview · full player</p>
+        <h2 class="reveal">A complete music player like <span class="gradient-text">Lark Player</span> — with a superpower</h2>
+        <p class="section-sub reveal">Play your songs just like any top music player — library, playlists, favorites, shuffle &amp; repeat, sleep timer, equalizer. The exclusive advantage: <strong>VocalPure splits every song into two tracks</strong>, <strong>🎤 Vocals</strong> and <strong>🎶 Music</strong>, so you can mute the instruments and keep only the lyrics — or sing karaoke over the original band. Everything runs locally on your device; nothing is uploaded.</p>
 
-        <div class="demo-panel reveal">
-          <div class="demo-left">
+        <div class="player-app reveal" id="player-app">
+          <!-- ===== Library pane ===== -->
+          <div class="lib-pane">
+            <div class="lib-tabs" role="tablist" aria-label="Library views">
+              <button type="button" class="lib-tab is-active" data-libtab="songs" role="tab" aria-selected="true">Songs</button>
+              <button type="button" class="lib-tab" data-libtab="favorites" role="tab" aria-selected="false">★ Favorites</button>
+              <button type="button" class="lib-tab" data-libtab="playlists" role="tab" aria-selected="false">▤ Playlists</button>
+            </div>
+            <div class="lib-tools">
+              <input type="search" id="song-search" placeholder="Search songs or artists…" aria-label="Search songs" />
+              <select id="song-sort" aria-label="Sort songs">
+                <option value="added">Recently added</option>
+                <option value="title">Title A–Z</option>
+                <option value="artist">Artist A–Z</option>
+                <option value="duration">Longest first</option>
+              </select>
+            </div>
             <div class="demo-drop" id="demo-drop">
               <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5l5 5"/><path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2"/></svg>
-              <p><strong>Drop an audio file here</strong> or <button type="button" class="link-btn" id="demo-browse">browse your device</button></p>
-              <p class="demo-hint">MP3 · WAV · M4A · OGG · up to 50 MB · stays on your device</p>
-              <input type="file" id="demo-file" accept="audio/*" hidden />
+              <p><strong>Drop audio files here</strong> or <button type="button" class="link-btn" id="demo-browse">browse your device</button></p>
+              <p class="demo-hint">MP3 · WAV · M4A · OGG · FLAC · multiple files OK · stays on your device</p>
+              <input type="file" id="demo-file" accept="audio/*" multiple hidden />
             </div>
-            <div class="demo-or"><span>or</span></div>
-            <button type="button" class="btn btn-ghost btn-block" id="demo-synth">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg>
-              No file handy? Generate a demo mix
-            </button>
-            <p class="demo-track" id="demo-track-label">No track loaded</p>
-            <div class="demo-modes" role="group" aria-label="Separation mode">
-              <button type="button" class="mode-btn is-active" data-mode="original">Original</button>
-              <button type="button" class="mode-btn" data-mode="vocals">Vocals only</button>
-              <button type="button" class="mode-btn" data-mode="karaoke">Karaoke</button>
+            <div class="lib-actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="add-songs-btn">＋ Add songs</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="demo-synth">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg>
+                Generate a demo mix
+              </button>
             </div>
+            <p class="lib-count" id="song-count">No songs yet — add your music to begin.</p>
+            <div class="playlist-bar" id="playlist-bar" hidden>
+              <input type="text" id="new-playlist-name" placeholder="New playlist name…" maxlength="40" aria-label="New playlist name" />
+              <button type="button" class="btn btn-primary btn-sm" id="new-playlist-add">Create</button>
+            </div>
+            <ul class="song-list" id="song-list" aria-label="Song library"></ul>
+            <ul class="playlist-list" id="playlist-list" aria-label="Playlists" hidden></ul>
+            <p class="lib-empty" id="lib-empty">Your library is empty.<br />Add songs above, or generate the built-in demo mix to hear the two-track splitter instantly.</p>
           </div>
-          <div class="demo-right">
+
+          <!-- ===== Now-playing pane ===== -->
+          <div class="np-pane">
+            <div class="np-top">
+              <div class="np-art" aria-hidden="true"><div class="np-disc" id="np-disc"><span>♪</span></div></div>
+              <div class="np-meta">
+                <p class="demo-track" id="demo-track-label">No track loaded</p>
+                <p class="np-artist" id="np-artist">Add songs to start listening</p>
+              </div>
+              <button type="button" class="icon-btn" id="np-fav" aria-label="Toggle favorite for current song" title="Favorite">☆</button>
+            </div>
             <canvas id="demo-viz" width="640" height="180" aria-label="Audio visualizer" role="img"></canvas>
             <div class="demo-transport">
-              <button type="button" class="play-btn" id="demo-play" aria-label="Play or pause" disabled>
-                <svg id="demo-play-icon" viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
-              </button>
+              <div class="transport-btns">
+                <button type="button" class="tbtn" id="btn-shuffle" aria-label="Shuffle" title="Shuffle: off">⇄</button>
+                <button type="button" class="tbtn" id="btn-prev" aria-label="Previous song" title="Previous">⏮</button>
+                <button type="button" class="play-btn" id="demo-play" aria-label="Play or pause" disabled>
+                  <svg id="demo-play-icon" viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+                </button>
+                <button type="button" class="tbtn" id="btn-next" aria-label="Next song" title="Next">⏭</button>
+                <button type="button" class="tbtn" id="btn-repeat" aria-label="Repeat mode" title="Repeat: off">↻</button>
+              </div>
               <div class="demo-progress-wrap">
                 <div class="demo-progress" id="demo-progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0"><span id="demo-progress-fill"></span></div>
                 <div class="demo-times"><span id="demo-time-cur">0:00</span><span id="demo-time-total">0:00</span></div>
               </div>
             </div>
             <div class="demo-controls">
+              <button type="button" class="tbtn tbtn-sm" id="mute-btn" aria-label="Mute" title="Mute">🔊</button>
               <label class="demo-vol">Volume
                 <input type="range" id="demo-volume" min="0" max="100" value="80" aria-label="Volume" />
               </label>
+              <label class="demo-select">Speed
+                <select id="playback-rate" aria-label="Playback speed">
+                  <option value="0.5">0.5×</option>
+                  <option value="0.75">0.75×</option>
+                  <option value="1" selected>1×</option>
+                  <option value="1.25">1.25×</option>
+                  <option value="1.5">1.5×</option>
+                  <option value="2">2×</option>
+                </select>
+              </label>
+              <label class="demo-select">⏾ Sleep
+                <select id="sleep-timer" aria-label="Sleep timer">
+                  <option value="0" selected>Off</option>
+                  <option value="5">5 min</option>
+                  <option value="10">10 min</option>
+                  <option value="15">15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="45">45 min</option>
+                  <option value="60">60 min</option>
+                </select>
+              </label>
               <button type="button" class="btn btn-ghost btn-sm" id="demo-stop" disabled>Stop</button>
             </div>
-            <p class="demo-status" id="demo-status" role="status" aria-live="polite">Load a track to begin. Every song works — stereo tracks use center-channel extraction, mono tracks use frequency-focus isolation.</p>
+            <p class="sleep-note" id="sleep-label" hidden></p>
+            <div class="np-tabs" role="tablist" aria-label="Player panels">
+              <button type="button" class="np-tab is-active" data-ptab="split" role="tab" aria-selected="true">🎚 Split tracks</button>
+              <button type="button" class="np-tab" data-ptab="eq" role="tab" aria-selected="false">🎛 Equalizer</button>
+              <button type="button" class="np-tab" data-ptab="queue" role="tab" aria-selected="false">☰ Up next <span class="np-count" id="queue-count"></span></button>
+            </div>
+            <div class="ptab" id="ptab-split" role="tabpanel">
+              <div class="demo-modes" role="group" aria-label="Separation mode">
+                <button type="button" class="mode-btn is-active" data-mode="original">Original</button>
+                <button type="button" class="mode-btn" data-mode="vocals">🎤 Vocals only</button>
+                <button type="button" class="mode-btn" data-mode="karaoke">🎶 Karaoke</button>
+                <button type="button" class="mode-btn" data-mode="custom">🎚 My mix</button>
+              </div>
+              <div class="stem-mix">
+                <div class="stem-card" id="stem-card-vocal">
+                  <div class="stem-head">
+                    <span class="stem-name">🎤 Track 1 · Vocals</span>
+                    <span class="stem-btns">
+                      <button type="button" class="chip-btn" id="solo-vocal" title="Solo vocals" aria-label="Solo vocals">S</button>
+                      <button type="button" class="chip-btn" id="mute-vocal" title="Mute vocals" aria-label="Mute vocals">M</button>
+                    </span>
+                  </div>
+                  <label class="stem-slider"><span>Vocal level <b id="stem-vocal-val">100%</b></span>
+                    <input type="range" id="stem-vocal" min="0" max="100" value="100" aria-label="Vocal track level" />
+                  </label>
+                  <p class="stem-sub">The lyrics — isolated voice</p>
+                </div>
+                <div class="stem-card" id="stem-card-inst">
+                  <div class="stem-head">
+                    <span class="stem-name">🎶 Track 2 · Music</span>
+                    <span class="stem-btns">
+                      <button type="button" class="chip-btn" id="solo-inst" title="Solo music" aria-label="Solo music">S</button>
+                      <button type="button" class="chip-btn" id="mute-inst" title="Mute music" aria-label="Mute music">M</button>
+                    </span>
+                  </div>
+                  <label class="stem-slider"><span>Music level <b id="stem-inst-val">100%</b></span>
+                    <input type="range" id="stem-inst" min="0" max="100" value="100" aria-label="Music track level" />
+                  </label>
+                  <p class="stem-sub">Drums · bass · guitars · synths</p>
+                </div>
+              </div>
+              <div class="export-row">
+                <button type="button" class="btn btn-ghost btn-sm" id="export-vocals">⬇ Vocals .wav</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="export-karaoke">⬇ Karaoke .wav</button>
+                <button type="button" class="btn btn-ghost btn-sm" id="export-mix">⬇ My mix .wav</button>
+              </div>
+            </div>
+            <div class="ptab" id="ptab-eq" role="tabpanel" hidden>
+              <div class="eq-head">
+                <label class="eq-enable"><span>Equalizer</span><button type="button" class="switch is-on" id="eq-enabled" role="switch" aria-checked="true" aria-label="Equalizer on or off"><i></i></button></label>
+                <select id="eq-preset" aria-label="Equalizer preset">
+                  <option value="normal">Normal</option>
+                  <option value="pop">Pop</option>
+                  <option value="rock">Rock</option>
+                  <option value="jazz">Jazz</option>
+                  <option value="classical">Classical</option>
+                  <option value="dance">Dance</option>
+                  <option value="bass">Bass boost</option>
+                  <option value="vocal">Vocal boost</option>
+                  <option value="treble">Treble</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <button type="button" class="btn btn-ghost btn-sm" id="eq-reset">Reset</button>
+              </div>
+              <div class="eq-bands">
+                <label class="eq-band"><span>60 Hz <b id="eq-val-0">0 dB</b></span><input type="range" id="eq-band-0" min="-12" max="12" value="0" aria-label="60 hertz band" /></label>
+                <label class="eq-band"><span>230 Hz <b id="eq-val-1">0 dB</b></span><input type="range" id="eq-band-1" min="-12" max="12" value="0" aria-label="230 hertz band" /></label>
+                <label class="eq-band"><span>910 Hz <b id="eq-val-2">0 dB</b></span><input type="range" id="eq-band-2" min="-12" max="12" value="0" aria-label="910 hertz band" /></label>
+                <label class="eq-band"><span>3.6 kHz <b id="eq-val-3">0 dB</b></span><input type="range" id="eq-band-3" min="-12" max="12" value="0" aria-label="3.6 kilohertz band" /></label>
+                <label class="eq-band"><span>14 kHz <b id="eq-val-4">0 dB</b></span><input type="range" id="eq-band-4" min="-12" max="12" value="0" aria-label="14 kilohertz band" /></label>
+              </div>
+            </div>
+            <div class="ptab" id="ptab-queue" role="tabpanel" hidden>
+              <ul class="queue-list" id="queue-list" aria-label="Up next queue"></ul>
+              <div class="queue-foot">
+                <button type="button" class="btn btn-ghost btn-sm" id="queue-clear">Clear up-next</button>
+              </div>
+            </div>
+            <p class="demo-status" id="demo-status" role="status" aria-live="polite">Add songs to begin. Every song works — stereo tracks use center-channel extraction, mono tracks use frequency-focus isolation.</p>
           </div>
         </div>
       </div>
@@ -259,7 +394,7 @@
                 <div class="mini-modes" aria-hidden="true"><span>Songs</span><span class="active">Vocals</span><span>Karaoke</span></div>
               </div>
             </div>
-            <h3>Vocal Library</h3><p>Auto-sorted originals, isolated vocals and karaoke mixes.</p>
+            <h3>Library &amp; Playlists</h3><p>Songs, favorites and playlists — your whole collection, beautifully organized.</p>
           </article>
         </div>
       </div>
@@ -276,15 +411,15 @@
           <article class="dl-card dl-main reveal">
             <div class="dl-head">
               <span class="dl-tag">Stable · Recommended</span>
-              <h3>VocalPure <span data-app="version">v2.4.1</span></h3>
-              <p class="dl-meta">Updated <span data-app="updated">Sep 17, 2026</span> · <span data-app="size">—</span> · Android <span data-app="minAndroid">8.0+</span></p>
+              <h3>VocalPure <span data-app="version">v2.6.0</span></h3>
+              <p class="dl-meta">Updated <span data-app="updated">Sep 18, 2026</span> · <span data-app="size">—</span> · Android <span data-app="minAndroid">8.0+</span></p>
             </div>
             <ul class="dl-points">
               <li>AI vocal isolation + full music player</li>
               <li>Works fully offline, no account needed</li>
               <li>Signature-verified &amp; malware-scanned</li>
             </ul>
-            <a class="btn btn-primary btn-lg btn-block" id="dl-stable" href="downloads/VocalPure-v2.4.1.apk" download>
+            <a class="btn btn-primary btn-lg btn-block" id="dl-stable" href="downloads/VocalPure-v2.6.0.apk" download>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16"/></svg>
               Download APK (<span data-app="size">—</span>)
             </a>
@@ -297,9 +432,9 @@
 
           <div class="dl-side">
             <article class="dl-card reveal">
-              <h3>Beta channel <span class="dl-tag dl-tag-beta">v2.5.0-beta.2</span></h3>
+              <h3>Beta channel <span class="dl-tag dl-tag-beta">v2.7.0-beta.1</span></h3>
               <p>Try new AI models first. Beta builds may be unstable — keep the stable APK as backup.</p>
-              <a class="btn btn-ghost btn-block" id="dl-beta" href="downloads/VocalPure-v2.5.0-beta.2.apk" download>Download beta APK (<span data-app="betaSize">—</span>)</a>
+              <a class="btn btn-ghost btn-block" id="dl-beta" href="downloads/VocalPure-v2.7.0-beta.1.apk" download>Download beta APK (<span data-app="betaSize">—</span>)</a>
             </article>
             <article class="dl-card reveal">
               <h3>Install on your phone</h3>
@@ -327,13 +462,13 @@
             </ul>
           </article>
           <article class="dl-card reveal">
-            <h3>What's new in <span data-app="version">v2.4.1</span></h3>
+            <h3>What's new in <span data-app="version">v2.6.0</span></h3>
             <ul class="check-list" id="changelog">
-              <li>New “PureVoice v3” AI model — 31% cleaner vocals</li>
-              <li>Karaoke mode with real-time lyric sync</li>
-              <li>FLAC / OPUS export for isolated stems</li>
-              <li>40% faster analysis on mid-range phones</li>
-              <li>Fixed gapless playback on Android 14+</li>
+              <li>Full Lark-style music player: library, playlists, favorites, shuffle &amp; repeat, sleep timer</li>
+              <li>Every song splits into two tracks — vocals + music — with a live stem mixer</li>
+              <li>5-band equalizer with Vocal Boost preset, plus WAV export for every mix</li>
+              <li>Your library is saved on-device and restored automatically</li>
+              <li>New sticky mini-player and refreshed now-playing screen</li>
             </ul>
           </article>
         </div>
@@ -347,6 +482,7 @@
         <h2 class="reveal">Frequently asked <span class="gradient-text">questions</span></h2>
         <div class="faq-list">
           <details class="faq reveal" open><summary>Is VocalPure really free?</summary><p>Yes. The player, vocal isolation, analyzer and karaoke mode are all free with no time limits. An optional “Supporter” tip inside the app removes the single download-page reminder — that's it.</p></details>
+          <details class="faq reveal"><summary>How is this different from Lark Player or other music players?</summary><p>VocalPure plays your music just like Lark Player — library, playlists, favorites, shuffle &amp; repeat, sleep timer and equalizer. The exclusive difference: it <strong>splits every song into two tracks</strong> (vocals + music), so you can remove the instruments and keep only the lyrics, or remove the voice for karaoke.</p></details>
           <details class="faq reveal"><summary>Is the APK safe to install?</summary><p>Yes. Every release is built reproducibly, signed with our official key, scanned for malware, and published with a SHA-256 checksum you can verify. The app only requests access to your music files.</p></details>
           <details class="faq reveal"><summary>Why isn't it on the Play Store?</summary><p>We're preparing our Play Store listing. Direct APK lets us ship AI-model updates weekly instead of waiting weeks for review. The APK is identical to what the store version will be.</p></details>
           <details class="faq reveal"><summary>Does vocal removal work offline?</summary><p>Completely. The AI model downloads once (~120 MB) and then runs on-device — even in airplane mode. Your songs are never uploaded anywhere.</p></details>
@@ -363,7 +499,7 @@
           <h2>Ready to hear the <span class="gradient-text">pure voice</span>?</h2>
           <p>Join 500,000+ singers, creators and music lovers. Free forever, takes 20 seconds to install.</p>
           <a href="#download" class="btn btn-primary btn-lg">Download VocalPure APK</a>
-          <p class="cta-note">v<span data-app="versionPlain">2.4.1</span> · <span data-app="size">—</span> · Android 8.0+ · SHA-256 verified</p>
+          <p class="cta-note">v<span data-app="versionPlain">2.6.0</span> · <span data-app="size">—</span> · Android 8.0+ · SHA-256 verified</p>
         </div>
       </div>
     </section>
@@ -376,7 +512,7 @@
         <span class="brand-name">Vocal<em>Pure</em></span>
         <p>AI vocal remover &amp; music player for Android. Made for singers, creators and dreamers.</p>
       </div>
-      <nav aria-label="Product"><h4>Product</h4><a href="#features">Features</a><a href="#demo">Live demo</a><a href="#download">Download</a><a href="#faq">FAQ</a></nav>
+      <nav aria-label="Product"><h4>Product</h4><a href="#features">Features</a><a href="#demo">Music player</a><a href="#download">Download</a><a href="#faq">FAQ</a></nav>
       <nav aria-label="Resources"><h4>Resources</h4><a href="#how">How it works</a><a href="#screens">Screenshots</a><a href="#download">Beta channel</a><a href="#download">Changelog</a></nav>
       <nav aria-label="Legal"><h4>Legal</h4><a href="#" id="link-privacy">Privacy</a><a href="#" id="link-terms">Terms</a><a href="#" id="link-contact">Contact</a></nav>
     </div>
@@ -434,9 +570,26 @@
     </div>
   </aside>
 
+  <!-- ===== Mini player (sticky) ===== -->
+  <div class="mini-bar" id="mini-bar" hidden>
+    <button type="button" class="mini-info" id="mini-info" aria-label="Back to player">
+      <span class="mini-disc-sm" aria-hidden="true"></span>
+      <span class="mini-text"><strong id="mini-title">—</strong><span id="mini-sub">VocalPure player</span></span>
+    </button>
+    <div class="mini-btns">
+      <button type="button" class="tbtn tbtn-sm" id="mini-split" aria-label="Cycle split mode" title="Split: original">🎧</button>
+      <button type="button" class="tbtn tbtn-sm" id="mini-play" aria-label="Play or pause">▶</button>
+      <button type="button" class="tbtn tbtn-sm" id="mini-next" aria-label="Next song">⏭</button>
+    </div>
+  </div>
+
+  <!-- ===== Playlist picker popover ===== -->
+  <div class="pl-pop" id="pl-pop" hidden></div>
+
   <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
 
   <script src="js/background.js" defer></script>
   <script src="js/app.js" defer></script>
 </body>
 </html>
+

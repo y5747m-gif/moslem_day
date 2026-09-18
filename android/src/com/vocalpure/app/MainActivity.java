@@ -63,8 +63,10 @@ public class MainActivity extends Activity {
                 Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
                 intent.setType("audio/*");
+                // The player supports a full library: let users pick many songs at once.
+                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 startActivityForResult(
-                        Intent.createChooser(intent, "Select a song"), FILE_CHOOSER_CODE);
+                        Intent.createChooser(intent, "Select songs"), FILE_CHOOSER_CODE);
                 return true;
             }
         });
@@ -78,8 +80,16 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == FILE_CHOOSER_CODE) {
             Uri[] result = null;
-            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                result = new Uri[]{ data.getData() };
+            if (resultCode == RESULT_OK && data != null) {
+                if (data.getClipData() != null && data.getClipData().getItemCount() > 0) {
+                    int n = data.getClipData().getItemCount();
+                    result = new Uri[n];
+                    for (int i = 0; i < n; i++) {
+                        result[i] = data.getClipData().getItemAt(i).getUri();
+                    }
+                } else if (data.getData() != null) {
+                    result = new Uri[]{ data.getData() };
+                }
             }
             if (fileCallback != null) {
                 fileCallback.onReceiveValue(result);
