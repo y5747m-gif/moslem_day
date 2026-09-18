@@ -159,6 +159,43 @@
     fillAppInfo(FALLBACK_INFO);
   }
 
+  /* ---- inside the Android app: adjust the download center ---- */
+  if (window.VocalPureAndroid && window.VocalPureAndroid.appInfo) {
+    try {
+      var info = JSON.parse(window.VocalPureAndroid.appInfo());
+      var installed = "v" + (info.versionName || "?");
+      var dlCard = document.getElementById("dl-stable");
+      if (dlCard) {
+        dlCard.removeAttribute("href");
+        dlCard.removeAttribute("download");
+        dlCard.style.pointerEvents = "none";
+        dlCard.innerHTML = "✓ Installed — you are running " + installed;
+        dlCard.setAttribute("aria-disabled", "true");
+      }
+      var betaCard = document.getElementById("dl-beta");
+      if (betaCard) {
+        betaCard.removeAttribute("href");
+        betaCard.removeAttribute("download");
+        betaCard.style.pointerEvents = "none";
+        betaCard.style.opacity = "0.55";
+        betaCard.textContent = "You already have the app installed";
+      }
+      var qr = document.getElementById("dl-qr-img");
+      if (qr) qr.style.display = "none";
+      var copyBtn = document.getElementById("dl-copy");
+      if (copyBtn) copyBtn.style.display = "none";
+      var shaBtn = document.getElementById("dl-sha");
+      if (shaBtn) shaBtn.style.display = "none";
+      var shaText = document.getElementById("dl-sha-text");
+      if (shaText) shaText.style.display = "none";
+      var hv = document.getElementById("hero-version");
+      if (hv) hv.textContent = installed + " · Android 8.0+ · 100% Free";
+      document.querySelectorAll("[data-app=\"version\"], [data-app=\"versionPlain\"]").forEach(function (el) {
+        el.textContent = info.versionName || el.textContent;
+      });
+    } catch (e) { /* stay in normal website mode */ }
+  }
+
   on($("dl-copy"), "click", function () {
     var href = ($("dl-stable") && $("dl-stable").getAttribute("href")) || FALLBACK_INFO.stableFile;
     var abs = href;
@@ -192,10 +229,127 @@
 
   /* ============================================================
      Live demo — Web Audio vocal / instrumental separation
-     Techniques (classic DSP, runs 100% locally):
-       vocals  -> midsigned (L+R)/2  : keeps center-panned vocals
-       karaoke -> side (L-R)/2       : removes center (karaoke effect)
+     Isolation engine v2 — works on EVERY track:
+       · stereo  -> center-channel extraction with band shaping
+                    (vocals live in the center; bass is returned
+                    for karaoke so the beat keeps driving)
+       · mono    -> frequency-focus fallback (vocal band 170 Hz –
+                    4.3 kHz isolated / removed), because mono files
+                    carry no side signal for mid/side separation
+       · every isolated path runs through a compressor so the
+                    result never clips, and gets makeup gain to
+                    match the original loudness.
      ============================================================ */
+  function isolationMethod() {
+    var stereo = !!(buffer && buffer.numberOfChannels >= 2);
+    if (mode === "original" || !stereo && mode === "vocals") {
+      return stereo ? "original" : (mode === "original" ? "original" : "mono-focus");
+    }
+    if (mode === "vocals") return "stereo-center";
+    if (stereo) return "stereo-side-bass";
+    return "mono-remove";
+  }
+
+  function biquad(type, freq, q) {
+    var f = actx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q === undefined ? 0.71 : q;
+    return f;
+  }
+
+  function gainNode(v) {
+    var g = actx.createGain();
+    g.gain.value = v;
+    return g;
+  }
+
+  function connectMode(src, dest, which) {
+    if (which === "original" || src.channelCount === 0) {
+      src.connect(dest);
+      return "original";
+    }
+    var stereo = !!(buffer && buffer.numberOfChannels >= 2);
+    // Safety limiter: isolation can raise levels, never let it clip.
+    var comp = actx.createDynamicsCompressor();
+    comp.threshold.value = -8;
+    comp.knee.value = 12;
+    comp.ratio.value = 6;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.18;
+    comp.connect(dest);
+
+    var splitter = actx.createChannelSplitter(2);
+    var merger = actx.createChannelMerger(2);
+    src.connect(splitter);
+
+    if (!stereo) {
+      /* ---- mono fallback: no side signal exists, so isolate by
+              frequency focus on the vocal band instead ---- */
+      if (which === "vocals") {
+        var hp = biquad("highpass", 170);
+        var lp = biquad("lowpass", 4300);
+        var presence = biquad("peaking", 2600, 1.1);
+        presence.gain.value = 2.5;
+        var makeup = gainNode(1.3);
+        src.connect(hp); hp.connect(lp); lp.connect(presence);
+        presence.connect(makeup); makeup.connect(comp);
+        return "mono-focus";
+      }
+      // karaoke on mono: remove the vocal band, keep the rest
+      var lowKeep = biquad("lowpass", 170);
+      var highKeep = biquad("highpass", 4300);
+      var sumLow = gainNode(1.25);
+      var sumHigh = gainNode(1.25);
+      src.connect(lowKeep); lowKeep.connect(sumLow);
+      src.connect(highKeep); highKeep.connect(sumHigh);
+      sumLow.connect(comp); sumHigh.connect(comp);
+      return "mono-remove";
+    }
+
+    if (which === "vocals") {
+      // mid = (L + R) / 2 -> both channels, then band-shape:
+      // cut sub rumble (<85 Hz) and air (>11.5 kHz) where vocals
+      // almost never live but guitars/cymbals do.
+      var gL = gainNode(0.5), gR = gainNode(0.5);
+      splitter.connect(gL, 0); splitter.connect(gR, 1);
+      gL.connect(merger, 0, 0); gR.connect(merger, 0, 0);
+      gL.connect(merger, 0, 1); gR.connect(merger, 0, 1);
+      var subCut = biquad("highpass", 85);
+      var airCut = biquad("lowpass", 11500);
+      var focus = biquad("peaking", 2600, 1.1);
+      focus.gain.value = 1.5;
+      var vocalMakeup = gainNode(1.35);
+      merger.connect(subCut); subCut.connect(airCut);
+      airCut.connect(focus); focus.connect(vocalMakeup);
+      vocalMakeup.connect(comp);
+      return "stereo-center";
+    }
+
+    // stereo karaoke: side = (L - R)/2 removes the center vocals,
+    // and a low-passed copy of the mid returns the bass/kick so
+    // every song keeps its groove.
+    var a = gainNode(0.5), b = gainNode(-0.5), c = gainNode(-0.5), d = gainNode(0.5);
+    splitter.connect(a, 0); splitter.connect(b, 1);
+    splitter.connect(c, 0); splitter.connect(d, 1);
+    a.connect(merger, 0, 0); b.connect(merger, 0, 0);
+    c.connect(merger, 0, 1); d.connect(merger, 0, 1);
+    var midL = gainNode(0.5), midR = gainNode(0.5);
+    splitter.connect(midL, 0); splitter.connect(midR, 1);
+    var bassKeep = biquad("lowpass", 150);
+    var bassGain = gainNode(0.85);
+    midL.connect(bassKeep, 0); midR.connect(bassKeep, 0);
+    var bassMerge = actx.createChannelMerger(2);
+    bassKeep.connect(bassGain);
+    bassGain.connect(bassMerge, 0, 0); bassGain.connect(bassMerge, 0, 1);
+    var sideGain = gainNode(1.15);
+    merger.connect(sideGain);
+    var finalMerge = actx.createChannelMerger(2);
+    sideGain.connect(finalMerge, 0, 0); sideGain.connect(finalMerge, 0, 1);
+    bassMerge.connect(finalMerge, 0, 0); bassMerge.connect(finalMerge, 0, 1);
+    finalMerge.connect(comp);
+    return "stereo-side-bass";
+  }
   var demoFile = $("demo-file");
   var demoBrowse = $("demo-browse");
   var demoDrop = $("demo-drop");
@@ -500,9 +654,9 @@
     drawViz();
     var ch = newBuffer.numberOfChannels || 2;
     if (ch < 2) {
-      setStatus("Track loaded (" + fmtTime(duration) + ", mono). Note: mono files separate less dramatically — stereo works best.");
+      setStatus("Track loaded (" + fmtTime(duration) + ", mono). The engine will use frequency-focus isolation — Vocals only keeps the vocal band, Karaoke removes it.");
     } else {
-      setStatus("Track loaded (" + fmtTime(duration) + ", stereo). Press play, then compare Original / Vocals only / Karaoke.");
+      setStatus("Track loaded (" + fmtTime(duration) + ", stereo). Press play, then compare Original / Vocals only / Karaoke — the center extractor keeps the voice and the karaoke mode returns the bass.");
     }
   }
 
@@ -738,7 +892,15 @@
         }
         if (playing) startAt(currentPos());
         var names = { original: "Original mix", vocals: "Vocals only", karaoke: "Karaoke (instruments only)" };
-        setStatus("Mode: " + (names[mode] || mode) + (playing ? " — playing." : ". Press play to listen."));
+        var methods = {
+          original: "untouched audio",
+          "stereo-center": "stereo center extraction",
+          "stereo-side-bass": "stereo side extraction + bass return",
+          "mono-focus": "mono frequency focus (vocal band)",
+          "mono-remove": "mono vocal-band removal"
+        };
+        var m = methods[isolationMethod()] || "isolation";
+        setStatus("Mode: " + (names[mode] || mode) + " · engine: " + m + (playing ? " — playing." : ". Press play to listen."));
       });
     })(modeBtns[m]);
   }

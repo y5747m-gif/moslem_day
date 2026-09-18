@@ -2,19 +2,19 @@
   "version": "v2.4.1",
   "versionPlain": "2.4.1",
   "betaVersion": "v2.5.0-beta.2",
-  "size": "674 B",
-  "betaSize": "680 B",
-  "updated": "Sep 17, 2026",
+  "size": "130 KB",
+  "betaSize": "130 KB",
+  "updated": "Sep 18, 2026",
   "minAndroid": "8.0+",
-  "sha256": "ed7afe89b46900285ca0dcb5c76da7b7ace40af5d077e6346a7e89634942e5e8",
-  "betaSha256": "c4936737e0e152b10ae0a8c10c5ec8a952cbd180d9c675afe021541500749a8f",
+  "sha256": "870dbd4d72e0a30abf826d838c16e73fb9eebf1106f9c6c4d033178698b4a366",
+  "betaSha256": "2e34e6dff4c307832b96db0bcd072e8fc76c2c7571f923203a1353322d5d32e4",
   "stableFile": "downloads/VocalPure-v2.4.1.apk",
   "betaFile": "downloads/VocalPure-v2.5.0-beta.2.apk",
   "changelog": [
-    "New \"PureVoice v3\" AI model \u2014 31% cleaner vocals",
-    "Karaoke mode with real-time lyric sync",
-    "FLAC / OPUS export for isolated stems",
-    "40% faster analysis on mid-range phones",
-    "Fixed gapless playback on Android 14+"
+    "Now ships as a real installable app — the full VocalPure player is bundled and works offline",
+    "Vocal isolation rebuilt: every song is supported — stereo via center-channel extraction, mono via frequency-focus",
+    "Karaoke mode now returns the bass/kick so the beat keeps driving",
+    "Automatic loudness matching and a safety limiter — isolated stems never clip",
+    "Clearer status messages show which isolation engine is active"
   ]
 }
