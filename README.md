@@ -18,6 +18,13 @@ The project has two completely separate parts:
 
 ## The app — features
 
+- **Auto purify** — every song is analyzed automatically the moment it is
+  imported (real on-device FFT, whole import batched in the background), and
+  its music (instruments) is **removed automatically** on playback: pure
+  vocals with zero taps. A Settings switch turns the automation off, and the
+  four modes (Original / Vocals / Karaoke / My mix) always win per track.
+- **Clarity ring** — the Now Playing screen shows the engine's strategy and
+  an estimated clarity score live per song.
 - **Library** — import multiple songs at once (file picker, drag & drop),
   auto-parsed “Artist – Title” names, generated covers, duration, sort by
   title/artist/date, remove. Library (audio included) stored in IndexedDB,
@@ -73,7 +80,8 @@ The project has two completely separate parts:
 │   ├── sync_assets.sh      # bundles app/ (only!) into assets/www
 │   └── keystore/           # release signing key (intentionally committed)
 └── downloads/
-    ├── VocalPure-v2.7.0.apk        # signed stable app (Android 8.0+)
+    ├── VocalPure-v2.8.0.apk        # signed stable app (Android 8.0+) — auto purify
+    ├── VocalPure-v2.7.0.apk        # previous stable (kept for reference)
     └── VocalPure-v2.8.0-beta.1.apk # signed beta build
 ```
 
@@ -93,8 +101,8 @@ The app can also be opened directly in a desktop browser for testing:
 ```bash
 export VP_TOOLS=$HOME/.vp-tools VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ./android/sync_assets.sh
-python3 android/build_apk.py --version-name 2.7.0 --version-code 270 \
-    --out downloads/VocalPure-v2.7.0.apk
+python3 android/build_apk.py --version-name 2.8.0 --version-code 280 \
+    --out downloads/VocalPure-v2.8.0.apk
 python3 android/verify_apk.py downloads/*.apk
 ```
 
@@ -108,6 +116,11 @@ the native bridge is unavailable), while the in-app version labels come
 from the native `AppBridge.appInfo()`.
 
 ## Vocal isolation — adaptive engine
+
+With **auto purify** (on by default) the analysis runs automatically for the
+whole import — in the background, one song at a time — and the music stem is
+muted automatically on playback, so only the voice plays. Switching modes or
+turning the switch off restores full manual control.
 
 Each imported song is analyzed offline with an on-device FFT (radix-2,
 1024 samples, up to a 6-second window at a random offset) that measures:
