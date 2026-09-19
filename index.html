@@ -53,7 +53,7 @@
     <section class="hero">
       <div class="container hero-grid">
         <div class="hero-copy">
-          <p class="badge reveal"><span class="pulse-dot" aria-hidden="true"></span><span id="hero-version">v2.8.0 · Android 8.0+ · 100% Free</span></p>
+          <p class="badge reveal"><span class="pulse-dot" aria-hidden="true"></span><span id="hero-version">v2.9.0 · Android 8.0+ · 100% Free</span></p>
           <h1 class="reveal">Hear Only the Voice.<br /><span class="gradient-text">Feel Every Word.</span></h1>
           <p class="lead reveal">VocalPure is a free, <strong>standalone Android music player</strong> that analyzes any song the moment you import it — then <strong>removes the music automatically</strong>, leaving crystal-clear isolated vocals. Karaoke, mixes and WAV export are one tap away. Perfect for singing practice, remixes and study.</p>
           <div class="hero-actions reveal">
@@ -76,27 +76,20 @@
         </div>
 
         <div class="hero-visual reveal">
-          <div class="phone" role="img" aria-label="VocalPure app preview: now playing screen with vocal isolation enabled">
+          <div class="phone phone-app" role="img" aria-label="VocalPure app preview: the Library screen of the installed Android app — light Material interface with bottom navigation and a mini player">
             <div class="phone-notch" aria-hidden="true"></div>
-            <div class="phone-screen">
-              <p class="mini-appbar">NOW PLAYING <span class="ai-chip">AI VOCALS: ON</span></p>
-              <div class="mini-art" aria-hidden="true">
-                <div class="mini-disc"></div>
-              </div>
-              <p class="mini-title">Midnight Echoes</p>
-              <p class="mini-artist">Nova Reign — vocals isolated</p>
-              <div class="mini-viz" aria-hidden="true">
-                <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-              </div>
-              <div class="mini-progress" aria-hidden="true"><span></span></div>
-              <div class="mini-controls" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
-                <span class="mini-play"><svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg></span>
-                <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>
-              </div>
-              <div class="mini-modes" aria-hidden="true">
-                <span>Original</span><span class="active">Vocals only</span><span>Karaoke</span>
-              </div>
+            <div class="phone-screen app-screen">
+              <div class="app-bar"><span class="app-bar-title">Library</span><span class="app-bar-icons"><i></i><i></i><i></i></span></div>
+              <div class="app-chips" aria-hidden="true"><span class="on">All</span><span>Favorites</span><span class="sort">Sort</span></div>
+              <ul class="app-list" aria-hidden="true">
+                <li class="cur"><span class="cover" style="background:#2e7d5b">M</span><span class="lines"><b>Midnight Echoes</b><small>Nova Reign · 3:42 <em>✓ auto</em></small></span><span class="bars"><i></i><i></i><i></i></span></li>
+                <li><span class="cover" style="background:#5b6bd6">F</span><span class="lines"><b>Feeling Good</b><small>Nina Simone · 2:58 <em>✓ auto</em></small></span><span class="more"></span></li>
+                <li><span class="cover" style="background:#c4713b">H</span><span class="lines"><b>Hello</b><small>Adele · 4:55 <em>✓ auto</em></small></span><span class="more"></span></li>
+                <li><span class="cover" style="background:#8a4fb5">B</span><span class="lines"><b>Bohemian Rhapsody</b><small>Queen · 5:55 <em>✓ auto</em></small></span><span class="more"></span></li>
+              </ul>
+              <div class="app-fab" aria-hidden="true">+ Add songs</div>
+              <div class="app-mini" aria-hidden="true"><span class="cover" style="background:#2e7d5b">M</span><span class="lines"><b>Midnight Echoes</b><small>Nova Reign · Vocals only</small></span><span class="play"></span></div>
+              <div class="app-nav" aria-hidden="true"><span class="on">Library</span><span>Search</span><span>Playlists</span><span>Settings</span></div>
             </div>
           </div>
           <div class="float-card float-a" aria-hidden="true"><strong>Adaptive</strong><span>per-song strategy</span></div>
@@ -126,7 +119,7 @@
           <article class="card reveal">
             <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg></div>
             <h3>Standalone Music Player</h3>
-            <p>A complete player in its own right: song library, search, playlists, favorites, shuffle &amp; repeat, sleep timer, playback speed and a 5-band equalizer — its own UI, fully separate from this website.</p>
+            <p>A complete player in its own right: song library, search, playlists, favorites, shuffle &amp; repeat, sleep timer, playback speed and a 5-band equalizer — a native-style Material interface with its own icon, completely separate from this website.</p>
           </article>
           <article class="card reveal">
             <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-8M22 20V7"/></svg></div>
@@ -166,49 +159,53 @@
       <div class="container">
         <p class="section-kicker reveal">Inside the app</p>
         <h2 class="reveal">Designed for <span class="gradient-text">music lovers</span></h2>
-        <p class="section-sub reveal">The app is its own thing — a warm, focused player UI built around your library and the two-track splitter.</p>
+        <p class="section-sub reveal">The app is its own thing: a <strong>native-style Material interface</strong> — light theme, bottom navigation, floating Add button, mini player — that shares nothing with this website. It installs from the APK and behaves like any other app on your phone.</p>
         <div class="screens-grid">
           <article class="screen-card reveal">
-            <div class="phone phone-sm" role="img" aria-label="Library screen preview">
+            <div class="phone phone-sm phone-app" role="img" aria-label="Library screen preview">
               <div class="phone-notch" aria-hidden="true"></div>
-              <div class="phone-screen">
-                <p class="mini-appbar">LIBRARY</p>
-                <ul class="mini-list" aria-hidden="true">
-                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>3:42</b></li>
-                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>4:05</b></li>
-                  <li class="on"><span class="dot"></span><span class="lines"><i></i><i></i></span><b>2:58</b></li>
-                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>5:11</b></li>
-                  <li><span class="dot"></span><span class="lines"><i></i><i></i></span><b>3:27</b></li>
+              <div class="phone-screen app-screen">
+                <div class="app-bar"><span class="app-bar-title">Library</span><span class="app-bar-icons"><i></i><i></i></span></div>
+                <div class="app-chips" aria-hidden="true"><span class="on">All</span><span>Favorites</span></div>
+                <ul class="app-list" aria-hidden="true">
+                  <li><span class="cover" style="background:#5b6bd6">F</span><span class="lines"><b>Feeling Good</b><small>2:58 <em>✓ auto</em></small></span></li>
+                  <li class="cur"><span class="cover" style="background:#2e7d5b">M</span><span class="lines"><b>Midnight Echoes</b><small>3:42 <em>✓ auto</em></small></span><span class="bars"><i></i><i></i><i></i></span></li>
+                  <li><span class="cover" style="background:#c4713b">H</span><span class="lines"><b>Hello</b><small>4:55 <em>✓ auto</em></small></span></li>
                 </ul>
-                <div class="mini-modes" aria-hidden="true"><span>Songs</span><span class="active">Vocals</span><span>Karaoke</span></div>
+                <div class="app-fab" aria-hidden="true">+ Add songs</div>
+                <div class="app-nav" aria-hidden="true"><span class="on">Library</span><span>Search</span><span>Playlists</span><span>Settings</span></div>
               </div>
             </div>
-            <h3>Library &amp; Playlists</h3><p>Songs, search, favorites and playlists — your whole collection, beautifully organized on-device.</p>
+            <h3>Library &amp; Playlists</h3><p>Material list with filters, sort, ⋮ menus and playlists — your whole collection on-device, in a normal Android app.</p>
           </article>
           <article class="screen-card reveal">
-            <div class="phone phone-sm" role="img" aria-label="Now playing screen preview">
+            <div class="phone phone-sm phone-app" role="img" aria-label="Now playing screen preview">
               <div class="phone-notch" aria-hidden="true"></div>
-              <div class="phone-screen">
-                <p class="mini-appbar">NOW PLAYING <span class="ai-chip">VOCALS: ON</span></p>
-                <div class="mini-art" aria-hidden="true"><div class="mini-disc"></div></div>
-                <p class="mini-title">Midnight Drive</p>
-                <p class="mini-artist">Center extraction · 92% clarity</p>
-                <div class="mini-viz" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-                <div class="mini-progress" aria-hidden="true"><span style="width:62%"></span></div>
+              <div class="phone-screen app-screen">
+                <div class="app-bar np"><span class="chev"></span><span class="app-chip">Vocals only · auto</span><span class="heart"></span></div>
+                <div class="app-art" aria-hidden="true">M</div>
+                <p class="app-np-title">Midnight Echoes</p>
+                <p class="app-np-artist">Nova Reign · stereo</p>
+                <div class="app-progress" aria-hidden="true"><span style="width:58%"></span></div>
+                <div class="app-controls" aria-hidden="true"><i></i><i></i><span class="play"></span><i></i><i></i></div>
+                <div class="app-modes" aria-hidden="true"><span>Original</span><span class="on">Vocals</span><span>Karaoke</span><span>My mix</span></div>
               </div>
             </div>
-            <h3>Two-Track Now Playing</h3><p>One-tap stem switching, live visualizer, and the adaptive engine shows how it's isolating each song.</p>
+            <h3>Now Playing</h3><p>Full-screen player with the clarity ring, stems, EQ and queue tabs — the back button simply closes it and the music keeps playing.</p>
           </article>
           <article class="screen-card reveal">
-            <div class="phone phone-sm" role="img" aria-label="Settings screen preview">
+            <div class="phone phone-sm phone-app" role="img" aria-label="Settings screen preview">
               <div class="phone-notch" aria-hidden="true"></div>
-              <div class="phone-screen">
-                <p class="mini-appbar">SETTINGS</p>
-                <div class="mini-stats" aria-hidden="true"><div><strong>80</strong><span>VOLUME</span></div><div><strong>1×</strong><span>SPEED</span></div><div><strong>EQ</strong><span>POP</span></div></div>
-                <div class="mini-bars" aria-hidden="true"><span style="height:40%"></span><span style="height:70%"></span><span style="height:55%"></span><span style="height:90%"></span><span style="height:65%"></span><span style="height:80%"></span></div>
+              <div class="phone-screen app-screen">
+                <div class="app-bar"><span class="app-bar-title">Settings</span></div>
+                <div class="app-pref" aria-hidden="true"><span class="lines"><b>Auto purify</b><small>Remove music automatically</small></span><span class="switch on"></span></div>
+                <div class="app-pref" aria-hidden="true"><span class="lines"><b>Appearance</b><small>Light · Dark · System</small></span><span class="seg"><i class="on">Light</i><i>Dark</i><i>System</i></span></div>
+                <div class="app-pref" aria-hidden="true"><span class="lines"><b>Volume</b><small>80%</small></span></div>
+                <div class="app-pref" aria-hidden="true"><span class="lines"><b>Sleep timer</b><small>Off</small></span></div>
+                <div class="app-nav" aria-hidden="true"><span>Library</span><span>Search</span><span>Playlists</span><span class="on">Settings</span></div>
               </div>
             </div>
-            <h3>Settings &amp; Equalizer</h3><p>Volume, sleep timer, playback speed, a 5-band EQ with presets — and your library stats.</p>
+            <h3>Settings &amp; Themes</h3><p>Auto purify switch, light / dark / system theme, volume, speed, sleep timer, storage — everything a phone app should have.</p>
           </article>
         </div>
       </div>
@@ -225,7 +222,7 @@
           <article class="dl-card dl-main reveal">
             <div class="dl-head">
               <span class="dl-tag">Stable · Recommended</span>
-              <h3>VocalPure <span data-app="version">v2.8.0</span></h3>
+              <h3>VocalPure <span data-app="version">v2.9.0</span></h3>
               <p class="dl-meta">Updated <span data-app="updated">Sep 19, 2026</span> · <span data-app="size">—</span> · Android <span data-app="minAndroid">8.0+</span></p>
             </div>
             <ul class="dl-points">
@@ -233,7 +230,7 @@
               <li>Works fully offline, no account needed</li>
               <li>Signature-verified &amp; malware-scanned</li>
             </ul>
-            <a class="btn btn-primary btn-lg btn-block" id="dl-stable" href="downloads/VocalPure-v2.8.0.apk" download>
+            <a class="btn btn-primary btn-lg btn-block" id="dl-stable" href="downloads/VocalPure-v2.9.0.apk" download>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M4 20h16"/></svg>
               Download APK (<span data-app="size">—</span>)
             </a>
@@ -246,9 +243,9 @@
 
           <div class="dl-side">
             <article class="dl-card reveal">
-              <h3>Beta channel <span class="dl-tag dl-tag-beta" data-app="betaVersion">v2.8.0-beta.1</span></h3>
+              <h3>Beta channel <span class="dl-tag dl-tag-beta" data-app="betaVersion">v2.9.0-beta.1</span></h3>
               <p>Try the next engine iteration first. Beta builds may be unstable — keep the stable APK as backup.</p>
-              <a class="btn btn-ghost btn-block" id="dl-beta" href="downloads/VocalPure-v2.8.0-beta.1.apk" download>Download beta APK (<span data-app="betaSize">—</span>)</a>
+              <a class="btn btn-ghost btn-block" id="dl-beta" href="downloads/VocalPure-v2.9.0-beta.1.apk" download>Download beta APK (<span data-app="betaSize">—</span>)</a>
             </article>
             <article class="dl-card reveal">
               <h3>Install on your phone</h3>
@@ -276,11 +273,11 @@
             </ul>
           </article>
           <article class="dl-card reveal">
-            <h3>What's new in <span data-app="version">v2.8.0</span></h3>
+            <h3>What's new in <span data-app="version">v2.9.0</span></h3>
             <ul class="check-list" id="changelog">
-              <li>Standalone app — completely separate from this download site</li>
-              <li>Adaptive isolation engine with per-song FFT analysis</li>
-              <li>Sharper karaoke and cleaner vocals-only output</li>
+              <li>Brand-new native Material interface — looks and feels like a regular Android app, nothing like this website</li>
+              <li>New adaptive launcher icon, launch screen, light/dark/system themes</li>
+              <li>Back button, background playback and in-app dialogs behave like every other phone app</li>
             </ul>
           </article>
         </div>
@@ -312,7 +309,7 @@
           <h2>Ready to hear the <span class="gradient-text">pure voice</span>?</h2>
           <p>Join 500,000+ singers, creators and music lovers. Free forever, takes 20 seconds to install.</p>
           <a href="#download" class="btn btn-primary btn-lg">Download VocalPure APK</a>
-          <p class="cta-note">v<span data-app="versionPlain">2.7.0</span> · <span data-app="size">—</span> · Android 8.0+ · SHA-256 verified</p>
+          <p class="cta-note">v<span data-app="versionPlain">2.9.0</span> · <span data-app="size">—</span> · Android 8.0+ · SHA-256 verified</p>
         </div>
       </div>
     </section>

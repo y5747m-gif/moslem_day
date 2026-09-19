@@ -1,28 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#070b12" />
-  <title>VocalPure — Music Player</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232fe6c8'/%3E%3Cstop offset='1' stop-color='%233aa6ff'/%3E%3C/linearGradient%3E%3E/defs%3E%3Crect width='64' height='64' rx='15' fill='%23070b12'/%3E%3Ccircle cx='32' cy='32' r='20' fill='none' stroke='url(%23g)' stroke-width='5'/%3E%3Ccircle cx='32' cy='32' r='6.5' fill='%23f2c14e'/%3E%3Cpath d='M32 11v8M32 45v8M11 32h8M45 32h8' stroke='%232fe6c8' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
-  <style>html, body { background: #070b12; }</style>
+  <meta name="theme-color" content="#f8faf5" />
+  <meta name="color-scheme" content="light dark" />
+  <title>VocalPure</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%231b6b4a'/%3E%3Crect x='42' y='22' width='24' height='40' rx='12' fill='%23fff'/%3E%3Cpath d='M32 52a22 22 0 0 0 44 0' fill='none' stroke='%23a8f2c9' stroke-width='7' stroke-linecap='round'/%3E%3Cpath d='M54 74v14M42 88h24' stroke='%23a8f2c9' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <style>html, body { background: #f8faf5; } html[data-theme="dark"], html[data-theme="dark"] body { background: #111412; }</style>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
 
-    <!-- ===== Top bar ===== -->
-    <header id="topbar">
-      <div class="topbar-left">
-        <span class="topbar-logo" aria-hidden="true">
-          <svg viewBox="0 0 64 64" width="26" height="26"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2fe6c8"/><stop offset="1" stop-color="#3aa6ff"/></linearGradient></defs><circle cx="32" cy="32" r="21" fill="none" stroke="url(#lg)" stroke-width="6"/><circle cx="32" cy="32" r="7" fill="#f2c14e"/><path d="M32 8v9M32 47v9M8 32h9M47 32h9" stroke="url(#lg)" stroke-width="5" stroke-linecap="round"/></svg>
-        </span>
-        <span id="topbar-title">Home</span>
-      </div>
-      <div class="topbar-actions">
-        <button type="button" class="tb-icon" id="btn-import" aria-label="Add songs" title="Add songs">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+    <!-- ===== Top app bar ===== -->
+    <header id="appbar" class="appbar">
+      <button type="button" class="icon-btn ripple" id="appbar-back" aria-label="Back" hidden>
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
+      <h1 id="topbar-title" class="appbar-title">Library</h1>
+      <div class="appbar-actions">
+        <button type="button" class="icon-btn ripple" id="btn-import" aria-label="Add songs" title="Add songs">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        </button>
+        <button type="button" class="icon-btn ripple" id="btn-appbar-search" aria-label="Search">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+        </button>
+        <button type="button" class="icon-btn ripple" id="btn-appbar-more" aria-label="More options" aria-haspopup="menu">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
         </button>
       </div>
     </header>
@@ -30,229 +35,295 @@
     <!-- ===== Screens ===== -->
     <main id="screens">
 
-      <!-- Home -->
-      <section id="screen-home" class="screen" role="region" aria-label="Home">
-        <div class="home-hero" id="home-hero">
-          <div class="home-hero-copy">
-            <p class="home-kicker">VocalPure · Auto Engine</p>
-            <h1>Import songs.<br /><em>Music removed</em> automatically.</h1>
-            <p class="home-sub">Every track is analyzed on-device the moment you add it — the instruments are stripped away and only the pure voice plays. Zero taps.</p>
-            <p class="auto-pill" id="auto-pill">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
-              Auto analyze · auto music removal
-            </p>
-          </div>
-          <button type="button" class="hero-btn" id="btn-hero-import">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            Add songs
+      <!-- Library -->
+      <section id="screen-home" class="screen" role="region" aria-label="Library">
+        <div class="chip-row" role="group" aria-label="Filter">
+          <button type="button" class="chip ripple is-selected" id="filter-all" data-filter="all" aria-pressed="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M9 18V5l12-2v13h-2V7.5L11 9v9a3.5 3.5 0 1 1-2-3.16V18z"/></svg>
+            All songs
+          </button>
+          <button type="button" class="chip ripple" id="filter-fav" data-filter="fav" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            Favorites
+          </button>
+          <span class="chip-spacer"></span>
+          <button type="button" class="icon-btn ripple" id="btn-sort" aria-label="Sort" aria-haspopup="menu">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z"/></svg>
           </button>
         </div>
 
-        <div class="section-head">
-          <h2>Recently added</h2>
-          <button type="button" class="ghost-btn sm" id="btn-play-all">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
+        <div class="list-head">
+          <span id="home-summary" class="list-summary">0 songs</span>
+          <button type="button" class="text-btn ripple" id="btn-play-all">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
             Play all
           </button>
+          <button type="button" class="text-btn ripple" id="btn-shuffle-all">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+            Shuffle
+          </button>
         </div>
 
-        <ul class="song-list" id="home-list" aria-label="Recently added songs"></ul>
+        <ul class="list" id="home-list" aria-label="Songs"></ul>
 
         <div class="empty-state" id="home-empty">
-          <div class="empty-art" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg>
+          <div class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
           </div>
-          <h2>Your library is empty</h2>
-          <p>Add songs from your phone — they are analyzed automatically and stay on this device, always private.</p>
-          <button type="button" class="primary-btn" id="btn-empty-import">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            Browse my songs
+          <h2>No songs yet</h2>
+          <p>Add music from your phone. Songs are analyzed on this device and the instruments are removed automatically.</p>
+          <button type="button" class="filled-btn ripple" id="btn-empty-import">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            Add songs
           </button>
-          <p class="empty-note">MP3 · WAV · M4A · OGG · FLAC · multiple files at once</p>
+          <p class="empty-note">MP3 · WAV · M4A · OGG · FLAC</p>
         </div>
       </section>
 
       <!-- Search -->
       <section id="screen-search" class="screen" role="region" aria-label="Search" hidden>
-        <div class="search-box">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-          <input type="search" id="search-input" placeholder="Search songs or artists…" aria-label="Search songs" autocomplete="off" />
-          <button type="button" id="search-clear" class="search-clear" aria-label="Clear search" hidden>✕</button>
+        <div class="search-bar">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          <input type="search" id="search-input" placeholder="Search songs and artists" aria-label="Search songs" autocomplete="off" enterkeyhint="search" />
+          <button type="button" id="search-clear" class="icon-btn ripple" aria-label="Clear search" hidden>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
         </div>
-        <p class="search-count" id="search-count"></p>
-        <ul class="song-list" id="search-list" aria-label="Search results"></ul>
+        <p class="list-summary search-count" id="search-count"></p>
+        <ul class="list" id="search-list" aria-label="Search results"></ul>
         <div class="empty-state slim" id="search-empty">
-          <h2>No matches</h2>
-          <p>Try a different title or artist name.</p>
+          <h2>No results</h2>
+          <p>Try another title or artist.</p>
+        </div>
+        <div class="empty-state slim" id="search-hint">
+          <div class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+          </div>
+          <h2>Search your library</h2>
+          <p>Type a song title or an artist name.</p>
         </div>
       </section>
 
       <!-- Playlists -->
       <section id="screen-playlists" class="screen" role="region" aria-label="Playlists" hidden>
-        <div class="section-head">
-          <h2>Playlists</h2>
-          <button type="button" class="ghost-btn sm" id="btn-new-playlist">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            New
+        <div class="list-head">
+          <span id="playlists-summary" class="list-summary">0 playlists</span>
+          <button type="button" class="text-btn ripple" id="btn-new-playlist">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z"/></svg>
+            New playlist
           </button>
         </div>
-        <div class="playlist-grid" id="playlist-list" aria-label="Your playlists"></div>
-        <div class="empty-state slim" id="playlists-empty">
-          <h2>No playlists yet</h2>
-          <p>Create one, then tap ＋ on any song to add it.</p>
+        <ul class="list" id="playlist-list" aria-label="Your playlists"></ul>
+        <div class="empty-state" id="playlists-empty">
+          <div class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor"><path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z"/></svg>
+          </div>
+          <h2>No playlists</h2>
+          <p>Create a playlist, then use the ⋮ menu on any song to add it.</p>
+          <button type="button" class="filled-btn ripple" id="btn-empty-playlist">Create playlist</button>
         </div>
       </section>
 
       <!-- Playlist detail -->
       <section id="screen-playlist" class="screen" role="region" aria-label="Playlist" hidden>
-        <header class="detail-head">
-          <button type="button" class="tb-icon" id="pl-back" aria-label="Back to playlists">
-            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
-          </button>
-          <div class="detail-title">
+        <div class="pl-header">
+          <div class="pl-header-art" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+          </div>
+          <div class="pl-header-meta">
             <h2 id="pl-name">Playlist</h2>
             <p id="pl-count">0 songs</p>
+            <div class="pl-header-actions">
+              <button type="button" class="filled-btn sm ripple" id="pl-play-all">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                Play
+              </button>
+              <button type="button" class="tonal-btn sm ripple" id="pl-shuffle">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+                Shuffle
+              </button>
+            </div>
           </div>
-          <button type="button" class="ghost-btn sm" id="pl-play-all">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>
-            Play
-          </button>
-          <button type="button" class="tb-icon danger" id="pl-delete" aria-label="Delete playlist">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6.5 7l1 12a1 1 0 001 .9h7a1 1 0 001-.9l1-12"/></svg>
-          </button>
-        </header>
-        <ul class="song-list" id="playlist-songs" aria-label="Playlist songs"></ul>
-        <div class="empty-state slim" id="playlist-empty">
-          <h2>Empty playlist</h2>
-          <p>Tap ＋ on any song in Home or Search to add it here.</p>
         </div>
+        <ul class="list" id="playlist-songs" aria-label="Playlist songs"></ul>
+        <div class="empty-state slim" id="playlist-empty">
+          <h2>This playlist is empty</h2>
+          <p>Open the ⋮ menu on any song and choose “Add to playlist”.</p>
+        </div>
+        <!-- kept for the JS (accessible via the app bar back arrow / overflow menu) -->
+        <button type="button" id="pl-back" hidden aria-hidden="true" tabindex="-1"></button>
+        <button type="button" id="pl-delete" hidden aria-hidden="true" tabindex="-1"></button>
       </section>
 
       <!-- Settings -->
       <section id="screen-settings" class="screen" role="region" aria-label="Settings" hidden>
-        <div class="set-group">
-          <h3>Playback</h3>
-          <div class="set-row">
-            <span class="set-label">Volume</span>
-            <input type="range" id="set-volume" min="0" max="100" value="80" aria-label="Volume" />
-            <b class="set-val" id="set-volume-val">80%</b>
+        <h3 class="pref-category">Playback</h3>
+        <div class="pref">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Volume</span>
+            <input type="range" class="slider" id="set-volume" min="0" max="100" value="80" aria-label="Volume" />
           </div>
-          <div class="set-row">
-            <span class="set-label">Speed</span>
-            <select id="set-rate" aria-label="Playback speed">
-              <option value="0.5">0.5×</option>
-              <option value="0.75">0.75×</option>
-              <option value="1" selected>1×</option>
-              <option value="1.25">1.25×</option>
-              <option value="1.5">1.5×</option>
-              <option value="2">2×</option>
-            </select>
+          <b class="pref-value" id="set-volume-val">80%</b>
+        </div>
+        <label class="pref ripple" for="set-rate">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20.38 8.57l-1.23 1.85a8 8 0 0 1-.22 7.58H5.07A8 8 0 0 1 15.58 6.85l1.85-1.23A10 10 0 0 0 3.35 19a2 2 0 0 0 1.72 1h13.85a2 2 0 0 0 1.74-1 10 10 0 0 0-.27-10.44zm-9.79 6.84a2 2 0 0 0 2.83 0l5.66-8.49-8.49 5.66a2 2 0 0 0 0 2.83z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Playback speed</span>
+            <span class="pref-summary">Slow down or speed up every song</span>
           </div>
-          <div class="set-row">
-            <span class="set-label">Sleep timer</span>
-            <select id="set-sleep" aria-label="Sleep timer">
-              <option value="0" selected>Off</option>
-              <option value="5">5 min</option>
-              <option value="10">10 min</option>
-              <option value="15">15 min</option>
-              <option value="30">30 min</option>
-              <option value="45">45 min</option>
-              <option value="60">60 min</option>
-            </select>
+          <select id="set-rate" class="pref-select" aria-label="Playback speed">
+            <option value="0.5">0.5×</option>
+            <option value="0.75">0.75×</option>
+            <option value="1" selected>Normal</option>
+            <option value="1.25">1.25×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+        </label>
+        <label class="pref ripple" for="set-sleep">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Sleep timer</span>
+            <span class="pref-summary" id="sleep-line">Off</span>
+          </div>
+          <select id="set-sleep" class="pref-select" aria-label="Sleep timer">
+            <option value="0" selected>Off</option>
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="15">15 min</option>
+            <option value="30">30 min</option>
+            <option value="45">45 min</option>
+            <option value="60">60 min</option>
+          </select>
+        </label>
+
+        <h3 class="pref-category">Vocal isolation</h3>
+        <div class="pref">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Auto purify</span>
+            <span class="pref-summary">Analyze each song when it is added and remove its music automatically on playback</span>
+          </div>
+          <button type="button" class="switch is-on" id="set-autopurify" role="switch" aria-checked="true" aria-label="Auto purify"><i></i></button>
+        </div>
+        <p class="pref-note">
+          The analysis runs offline with an on-device FFT. Choose Original, Karaoke or My mix on the player screen to override it for the current song.
+        </p>
+
+        <h3 class="pref-category">Appearance</h3>
+        <div class="pref">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Theme</span>
+            <div class="segmented" role="radiogroup" aria-label="Theme" id="theme-seg">
+              <button type="button" class="seg ripple is-selected" data-theme="light" role="radio" aria-checked="true">Light</button>
+              <button type="button" class="seg ripple" data-theme="dark" role="radio" aria-checked="false">Dark</button>
+              <button type="button" class="seg ripple" data-theme="system" role="radio" aria-checked="false">System</button>
+            </div>
           </div>
         </div>
 
-        <div class="set-group">
-          <h3>Auto purify</h3>
-          <div class="set-row">
-            <span class="set-label">Auto purify<small class="set-sub">Analyze every song &amp; remove its music automatically</small></span>
-            <button type="button" class="switch is-on" id="set-autopurify" role="switch" aria-checked="true" aria-label="Auto purify on or off"><i></i></button>
+        <h3 class="pref-category">Library</h3>
+        <div class="pref">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Stored songs</span>
+            <span class="pref-summary">Kept on this device only</span>
           </div>
-          <p class="set-note">
-            Songs are analyzed with a real FFT <b>the moment you import them</b> — nothing is
-            uploaded. With Auto purify on, playback starts with the music track already
-            removed, so <b>only the pure voice plays</b>. You can still switch to Original,
-            Karaoke or My mix at any time; the automation applies again on the next song.
-          </p>
+          <b class="pref-value" id="set-song-count">0</b>
         </div>
+        <div class="pref">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Storage used</span>
+            <span class="pref-summary">Audio files saved in the app</span>
+          </div>
+          <b class="pref-value" id="set-storage">0 MB</b>
+        </div>
+        <button type="button" class="pref ripple pref-btn" id="btn-clear-library">
+          <span class="pref-icon danger" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title danger">Remove all songs</span>
+            <span class="pref-summary">Deletes the library and playlists from this device</span>
+          </div>
+        </button>
 
-        <div class="set-group">
-          <h3>Library</h3>
-          <div class="set-row">
-            <span class="set-label">Stored songs</span>
-            <b class="set-val" id="set-song-count">0</b>
+        <h3 class="pref-category">About</h3>
+        <div class="pref">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">Version</span>
+            <span class="pref-summary">VocalPure for Android 8.0+ · works offline</span>
           </div>
-          <div class="set-row">
-            <span class="set-label">Estimated storage</span>
-            <b class="set-val" id="set-storage">0 MB</b>
-          </div>
-          <div class="set-row">
-            <button type="button" class="ghost-btn sm danger-text" id="btn-clear-library">Remove all songs</button>
+          <b class="pref-value" id="set-version">—</b>
+        </div>
+        <div class="pref pref-static">
+          <span class="pref-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg></span>
+          <div class="pref-body">
+            <span class="pref-title">What's new</span>
+            <ul class="changelog" id="set-changelog"></ul>
           </div>
         </div>
-
-        <div class="set-group">
-          <h3>Isolation engine</h3>
-          <p class="set-note">
-            For each song the engine measures how much of the mix sits in the center channel
-            and picks the strongest strategy automatically — <b>center extraction</b> for
-            standard stereo masters, a <b>soft blend</b> for wide mixes, or <b>frequency
-            focus</b> for mono files. The estimated clarity is shown on the player screen.
-          </p>
-        </div>
-
-        <div class="set-group">
-          <h3>About</h3>
-          <div class="set-row">
-            <span class="set-label">Version</span>
-            <b class="set-val" id="set-version">—</b>
-          </div>
-          <div class="set-row">
-            <span class="set-label">Runs on</span>
-            <b class="set-val">Android 8.0+ · offline</b>
-          </div>
-          <ul class="set-changelog" id="set-changelog"></ul>
-          <p class="set-note">
-            VocalPure is a standalone music player. Your songs and library never leave
-            this phone. Only separate vocals from music you own or have the right to remix.
-          </p>
-        </div>
+        <p class="pref-note">Your songs never leave this phone. Only separate vocals from music you own or have the right to remix.</p>
       </section>
     </main>
 
-    <!-- ===== Bottom tab bar ===== -->
-    <nav id="tabbar" aria-label="Main navigation">
-      <button type="button" class="tab is-active" data-screen="home" aria-label="Home">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 10.5L12 3.5l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/></svg>
-        <span>Home</span>
+    <!-- ===== Floating action button ===== -->
+    <button type="button" class="fab ripple" id="fab-add" aria-label="Add songs">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      <span id="fab-label">Add songs</span>
+    </button>
+
+    <!-- ===== Mini player (docked above the navigation bar) ===== -->
+    <div id="mini-player" class="mini-player" hidden>
+      <div class="mini-progress" aria-hidden="true"><i id="mini-progress-fill"></i></div>
+      <button type="button" class="mini-main ripple" id="mini-open" aria-label="Open player">
+        <span class="mini-art" id="mini-art" aria-hidden="true"><span id="mini-art-letter">♪</span></span>
+        <span class="mini-meta">
+          <strong id="mini-title">Nothing playing</strong>
+          <span id="mini-artist">—</span>
+        </span>
+      </button>
+      <button type="button" class="icon-btn ripple" id="mini-play" aria-label="Play or pause">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path id="mini-play-icon" d="M8 5v14l11-7z"/></svg>
+      </button>
+      <button type="button" class="icon-btn ripple" id="mini-next" aria-label="Next song">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+      </button>
+    </div>
+
+    <!-- ===== Navigation bar ===== -->
+    <nav id="tabbar" class="navbar" aria-label="Main navigation">
+      <button type="button" class="tab is-active" data-screen="home" aria-label="Library">
+        <span class="tab-indicator"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></span>
+        <span class="tab-label">Library</span>
       </button>
       <button type="button" class="tab" data-screen="search" aria-label="Search">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-        <span>Search</span>
+        <span class="tab-indicator"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>
+        <span class="tab-label">Search</span>
       </button>
       <button type="button" class="tab" data-screen="playlists" aria-label="Playlists">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7"/><circle cx="18.5" cy="16.5" r="3.5"/><path d="M21.5 18.5V9l-3-1"/></svg>
-        <span>Playlists</span>
+        <span class="tab-indicator"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg></span>
+        <span class="tab-label">Playlists</span>
       </button>
       <button type="button" class="tab" data-screen="settings" aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M4.9 4.9l1.9 1.9M17.2 17.2l1.9 1.9M2.8 12h2.6M18.6 12h2.6M4.9 19.1l1.9-1.9M17.2 6.8l1.9-1.9"/></svg>
-        <span>Settings</span>
+        <span class="tab-indicator"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg></span>
+        <span class="tab-label">Settings</span>
       </button>
     </nav>
 
     <!-- ===== Now Playing (full screen) ===== -->
     <div id="np-screen" class="np-screen" role="dialog" aria-label="Now playing" hidden>
-      <header class="np-header">
-        <button type="button" class="tb-icon" id="np-back" aria-label="Close player">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+      <header class="np-appbar">
+        <button type="button" class="icon-btn ripple" id="np-back" aria-label="Close player">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
         </button>
-        <div class="np-header-title"><span>Now playing</span><em id="np-mode-chip">Original</em></div>
-        <button type="button" class="tb-icon" id="np-fav" aria-label="Toggle favorite">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.3l-7.1-4.3a2.4 2.4 0 01-.7-4.2L6.6 8.6 11 6.2a1.2 1.2 0 012 0l4.4 3.4 2.4 3.2a2.4 2.4 0 01-.7 4.2z"/></svg>
+        <div class="np-appbar-title"><span>Now playing</span><em id="np-mode-chip">Original</em></div>
+        <button type="button" class="icon-btn ripple" id="np-fav" aria-label="Favorite">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path id="np-fav-icon" d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></svg>
         </button>
       </header>
-
-      <p id="sleep-line" class="sleep-line" hidden></p>
 
       <div class="np-body">
         <div class="np-art" id="np-art" aria-hidden="true"><span id="np-art-letter">♪</span></div>
@@ -262,91 +333,99 @@
           <p id="np-artist">Add songs to get started</p>
         </div>
 
-        <div class="np-engine" id="np-engine-card">
-          <div class="clarity-ring" id="np-clarity-ring" aria-hidden="true"><span id="np-clarity-num">–</span></div>
-          <div class="np-engine-meta">
-            <b id="np-strategy">Auto purify engine</b>
-            <span id="np-strategy-detail">Add songs — they are analyzed automatically, then their music is removed.</span>
-          </div>
+        <div class="chip-row modes" role="group" aria-label="Isolation mode">
+          <button type="button" class="chip ripple mode-btn" data-mode="original">Original</button>
+          <button type="button" class="chip ripple mode-btn is-selected" data-mode="vocals">Vocals only</button>
+          <button type="button" class="chip ripple mode-btn" data-mode="karaoke">Karaoke</button>
+          <button type="button" class="chip ripple mode-btn" data-mode="custom">My mix</button>
         </div>
 
-        <canvas id="np-viz" height="64" aria-label="Audio visualizer" role="img"></canvas>
+        <canvas id="np-viz" height="48" aria-label="Audio visualizer" role="img"></canvas>
 
         <div class="np-progress" id="np-progress" role="slider" aria-label="Seek" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
-          <div class="np-progress-track"><div class="np-progress-fill" id="np-progress-fill"></div></div>
+          <div class="np-progress-track"><div class="np-progress-fill" id="np-progress-fill"><i></i></div></div>
         </div>
         <div class="np-times"><span id="np-time-cur">0:00</span><span id="np-time-total">0:00</span></div>
 
         <div class="np-transport">
-          <button type="button" class="np-tbtn" id="btn-shuffle" aria-label="Shuffle" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h3.5c5 0 7 12 12 12H21M3 18h3.5c2 0 3.5-2 4.7-4M21 6h-2.5c-2 0-3.5 2-4.7 4"/><path d="M18 3l3 3-3 3M18 15l3 3-3 3"/></svg>
+          <button type="button" class="icon-btn ripple np-tbtn" id="btn-shuffle" aria-label="Shuffle" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
           </button>
-          <button type="button" class="np-tbtn" id="btn-prev" aria-label="Previous song">
-            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M6 5h2.4v14H6zM20 5v14L9.5 12z"/></svg>
+          <button type="button" class="icon-btn ripple np-tbtn big" id="btn-prev" aria-label="Previous song">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
           </button>
-          <button type="button" class="np-play" id="btn-play" aria-label="Play or pause">
-            <svg id="np-play-icon" viewBox="0 0 24 24" width="30" height="30" fill="currentColor" aria-hidden="true"><path d="M7.5 4.8v14.4L20 12z"/></svg>
+          <button type="button" class="np-play ripple" id="btn-play" aria-label="Play or pause">
+            <svg id="np-play-icon" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
           </button>
-          <button type="button" class="np-tbtn" id="btn-next" aria-label="Next song">
-            <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M15.6 5H18v14h-2.4zM4 5v14l10.5-7z"/></svg>
+          <button type="button" class="icon-btn ripple np-tbtn big" id="btn-next" aria-label="Next song">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
           </button>
-          <button type="button" class="np-tbtn" id="btn-repeat" aria-label="Repeat" aria-pressed="false">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10a6 6 0 016-6h8M20 14a6 6 0 01-6 6H6M17 1l3 3-3 3M7 23l-3-3 3-3"/></svg>
+          <button type="button" class="icon-btn ripple np-tbtn" id="btn-repeat" aria-label="Repeat" aria-pressed="false">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path id="repeat-icon" d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
           </button>
         </div>
 
         <div class="np-panels">
-          <div class="np-panel-tabs" role="tablist" aria-label="Player panels">
-            <button type="button" class="np-tab is-active" data-panel="sound" role="tab" aria-selected="true">🎚 Sound</button>
-            <button type="button" class="np-tab" data-panel="eq" role="tab" aria-selected="false">🎛 EQ</button>
-            <button type="button" class="np-tab" data-panel="queue" role="tab" aria-selected="false">☰ Queue <span class="np-count" id="queue-count"></span></button>
+          <div class="tabs" role="tablist" aria-label="Player panels">
+            <button type="button" class="np-tab tab-item ripple is-active" data-panel="sound" role="tab" aria-selected="true">Sound</button>
+            <button type="button" class="np-tab tab-item ripple" data-panel="eq" role="tab" aria-selected="false">Equalizer</button>
+            <button type="button" class="np-tab tab-item ripple" data-panel="queue" role="tab" aria-selected="false">Queue <span class="tab-count" id="queue-count"></span></button>
           </div>
 
           <div id="panel-sound" class="np-panel" role="tabpanel">
-            <div class="mode-row" role="group" aria-label="Isolation mode">
-              <button type="button" class="mode-btn" data-mode="original">Original</button>
-              <button type="button" class="mode-btn is-active" data-mode="vocals">🎤 Vocals</button>
-              <button type="button" class="mode-btn" data-mode="karaoke">🎶 Karaoke</button>
-              <button type="button" class="mode-btn" data-mode="custom">🎚 My mix</button>
+            <div class="engine-card" id="np-engine-card">
+              <div class="clarity-ring" id="np-clarity-ring" aria-hidden="true"><span id="np-clarity-num">–</span></div>
+              <div class="engine-meta">
+                <b id="np-strategy">Auto purify</b>
+                <span id="np-strategy-detail">Add songs — they are analyzed automatically and their music is removed.</span>
+              </div>
             </div>
-            <p class="engine-line" id="engine-line">Every song is analyzed automatically on import — the engine picks the strongest strategy per track.</p>
-            <div class="stem-row">
-              <div class="stem-card" id="card-vocal">
-                <div class="stem-head">
-                  <span class="stem-name">🎤 Vocals</span>
-                  <span class="stem-chips">
-                    <button type="button" class="chip" id="solo-vocal" aria-label="Solo vocals" title="Solo">S</button>
-                    <button type="button" class="chip" id="mute-vocal" aria-label="Mute vocals" title="Mute">M</button>
-                  </span>
-                </div>
-                <input type="range" id="stem-vocal" min="0" max="100" value="100" aria-label="Vocal level" />
+            <p class="engine-line" id="engine-line">Every song is analyzed automatically when it is added.</p>
+            <div class="stem-card" id="card-vocal">
+              <div class="stem-head">
+                <span class="stem-name">Vocals</span>
+                <span class="stem-chips">
+                  <button type="button" class="mini-chip ripple" id="solo-vocal" aria-label="Solo vocals" title="Solo">S</button>
+                  <button type="button" class="mini-chip ripple" id="mute-vocal" aria-label="Mute vocals" title="Mute">M</button>
+                </span>
                 <b class="stem-val" id="stem-vocal-val">100%</b>
               </div>
-              <div class="stem-card stem-muted" id="card-music">
-                <div class="stem-head">
-                  <span class="stem-name">🎶 Music</span>
-                  <span class="stem-chips">
-                    <button type="button" class="chip" id="solo-music" aria-label="Solo music" title="Solo">S</button>
-                    <button type="button" class="chip" id="mute-music" aria-label="Mute music" title="Mute">M</button>
-                  </span>
-                </div>
-                <input type="range" id="stem-music" min="0" max="100" value="0" aria-label="Music level" />
+              <input type="range" class="slider" id="stem-vocal" min="0" max="100" value="100" aria-label="Vocal level" />
+            </div>
+            <div class="stem-card stem-muted" id="card-music">
+              <div class="stem-head">
+                <span class="stem-name">Music</span>
+                <span class="stem-chips">
+                  <button type="button" class="mini-chip ripple" id="solo-music" aria-label="Solo music" title="Solo">S</button>
+                  <button type="button" class="mini-chip ripple" id="mute-music" aria-label="Mute music" title="Mute">M</button>
+                </span>
                 <b class="stem-val" id="stem-music-val">0%</b>
               </div>
+              <input type="range" class="slider" id="stem-music" min="0" max="100" value="0" aria-label="Music level" />
             </div>
             <div class="export-row">
-              <button type="button" class="ghost-btn sm" id="exp-vocals">⬇ Vocals .wav</button>
-              <button type="button" class="ghost-btn sm" id="exp-karaoke">⬇ Karaoke .wav</button>
-              <button type="button" class="ghost-btn sm" id="exp-mix">⬇ My mix .wav</button>
+              <button type="button" class="outlined-btn sm ripple" id="exp-vocals">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Vocals
+              </button>
+              <button type="button" class="outlined-btn sm ripple" id="exp-karaoke">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                Karaoke
+              </button>
+              <button type="button" class="outlined-btn sm ripple" id="exp-mix">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                My mix
+              </button>
             </div>
+            <p class="export-note">Saved as WAV in Music/VocalPure on this phone.</p>
           </div>
 
           <div id="panel-eq" class="np-panel" role="tabpanel" hidden>
             <div class="eq-top">
               <label class="eq-toggle"><span>Equalizer</span>
-                <button type="button" class="switch is-on" id="eq-on" role="switch" aria-checked="true" aria-label="Equalizer on or off"><i></i></button>
+                <button type="button" class="switch is-on" id="eq-on" role="switch" aria-checked="true" aria-label="Equalizer"><i></i></button>
               </label>
-              <select id="eq-preset" aria-label="Equalizer preset">
+              <select id="eq-preset" class="pref-select" aria-label="Equalizer preset">
                 <option value="normal">Normal</option>
                 <option value="pop">Pop</option>
                 <option value="rock">Rock</option>
@@ -358,39 +437,62 @@
                 <option value="treble">Treble</option>
                 <option value="custom">Custom</option>
               </select>
-              <button type="button" class="ghost-btn sm" id="eq-reset">Reset</button>
+              <button type="button" class="text-btn ripple" id="eq-reset">Reset</button>
             </div>
             <div class="eq-bands">
-              <label class="eq-band"><span>60 Hz <b id="eq-val-0">0 dB</b></span><input type="range" id="eq-0" min="-12" max="12" value="0" aria-label="60 hertz" /></label>
-              <label class="eq-band"><span>230 Hz <b id="eq-val-1">0 dB</b></span><input type="range" id="eq-1" min="-12" max="12" value="0" aria-label="230 hertz" /></label>
-              <label class="eq-band"><span>910 Hz <b id="eq-val-2">0 dB</b></span><input type="range" id="eq-2" min="-12" max="12" value="0" aria-label="910 hertz" /></label>
-              <label class="eq-band"><span>3.6 kHz <b id="eq-val-3">0 dB</b></span><input type="range" id="eq-3" min="-12" max="12" value="0" aria-label="3.6 kilohertz" /></label>
-              <label class="eq-band"><span>14 kHz <b id="eq-val-4">0 dB</b></span><input type="range" id="eq-4" min="-12" max="12" value="0" aria-label="14 kilohertz" /></label>
+              <label class="eq-band"><span>60 Hz <b id="eq-val-0">0 dB</b></span><input type="range" class="slider" id="eq-0" min="-12" max="12" value="0" aria-label="60 hertz" /></label>
+              <label class="eq-band"><span>230 Hz <b id="eq-val-1">0 dB</b></span><input type="range" class="slider" id="eq-1" min="-12" max="12" value="0" aria-label="230 hertz" /></label>
+              <label class="eq-band"><span>910 Hz <b id="eq-val-2">0 dB</b></span><input type="range" class="slider" id="eq-2" min="-12" max="12" value="0" aria-label="910 hertz" /></label>
+              <label class="eq-band"><span>3.6 kHz <b id="eq-val-3">0 dB</b></span><input type="range" class="slider" id="eq-3" min="-12" max="12" value="0" aria-label="3.6 kilohertz" /></label>
+              <label class="eq-band"><span>14 kHz <b id="eq-val-4">0 dB</b></span><input type="range" class="slider" id="eq-4" min="-12" max="12" value="0" aria-label="14 kilohertz" /></label>
             </div>
           </div>
 
           <div id="panel-queue" class="np-panel" role="tabpanel" hidden>
             <ul class="queue-list" id="queue-list" aria-label="Up next"></ul>
-            <button type="button" class="ghost-btn sm" id="queue-clear">Clear queue</button>
+            <button type="button" class="text-btn ripple" id="queue-clear">Clear queue</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ===== Playlist picker sheet ===== -->
-    <div class="sheet-backdrop" id="pl-backdrop" hidden>
+    <!-- ===== Bottom sheet: add to playlist ===== -->
+    <div class="scrim" id="pl-backdrop" hidden>
       <div class="sheet" role="dialog" aria-label="Add to playlist">
         <div class="sheet-handle" aria-hidden="true"></div>
         <h3 id="pl-sheet-title">Add to playlist</h3>
-        <div id="pl-sheet-list"></div>
-        <button type="button" class="primary-btn block" id="pl-sheet-close">Done</button>
+        <div id="pl-sheet-list" class="sheet-list"></div>
+        <div class="sheet-actions">
+          <button type="button" class="text-btn ripple" id="pl-sheet-new">New playlist</button>
+          <button type="button" class="filled-btn ripple" id="pl-sheet-close">Done</button>
+        </div>
       </div>
     </div>
 
-    <!-- Import file picker (Android WebView routes this to the system file chooser) -->
+    <!-- ===== Dialog (replaces browser prompt/confirm) ===== -->
+    <div class="scrim center" id="dialog-backdrop" hidden>
+      <div class="dialog" role="alertdialog" aria-labelledby="dialog-title" aria-describedby="dialog-body">
+        <h3 id="dialog-title">Title</h3>
+        <p id="dialog-body"></p>
+        <div class="text-field" id="dialog-field" hidden>
+          <input type="text" id="dialog-input" maxlength="40" aria-label="Name" />
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="text-btn ripple" id="dialog-cancel">Cancel</button>
+          <button type="button" class="text-btn ripple" id="dialog-ok">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Popup menu ===== -->
+    <div class="menu-scrim" id="menu-backdrop" hidden>
+      <div class="menu" id="menu" role="menu"></div>
+    </div>
+
+    <!-- Import file picker (Android routes this to the system file chooser) -->
     <input type="file" id="file-input" accept="audio/*" multiple hidden />
 
-    <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+    <div class="snackbar-wrap" id="toast-wrap" aria-live="polite"></div>
   </div>
 
   <script src="app.js"></script>

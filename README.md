@@ -12,12 +12,25 @@ The project has two completely separate parts:
    customizable animated background. **It contains no music player and no
    demo music** — everything playable lives in the app.
 2. **The Android app** (`app/` → built into `downloads/*.apk`) — a
-   **standalone music player** with its own UI, identity and feature set.
-   It does **not** bundle the website: only the four `app/` files go into
-   the APK.
+   **standalone music player** with its own identity: a native-style
+   **Material Design interface** (light theme by default, top app bar,
+   bottom navigation, floating “Add songs” button, mini player, in-app
+   menus/dialogs/sheets), its own adaptive launcher icon and launch
+   screen, proper Android back-button behaviour and background playback.
+   It looks nothing like the website and does **not** bundle it: only the
+   four `app/` files go into the APK.
 
 ## The app — features
 
+- **Looks and behaves like a regular Android app** — Material 3 style
+  shell: app bar, filter chips, list rows with ⋮ menus, extended FAB,
+  4-tab navigation bar, mini player, full-screen Now Playing, bottom sheets
+  and alert dialogs (no browser pop-ups). Light / Dark / System theme with
+  matching status & navigation bars, adaptive launcher icon, launch screen.
+- **Native behaviour** — the hardware back button closes menus → dialogs →
+  sheets → the player → returns to the Library → then sends the app to the
+  background (music keeps playing, wake lock held while playing). Rotation
+  and theme changes never reload the app.
 - **Auto purify** — every song is analyzed automatically the moment it is
   imported (real on-device FFT, whole import batched in the background), and
   its music (instruments) is **removed automatically** on playback: pure
@@ -69,20 +82,27 @@ The project has two completely separate parts:
 ├── app-info.json           # release metadata (single source of truth for
 │                           # version, sizes, checksums, changelog)
 ├── app/                    # the STANDALONE app (what the APK contains)
-│   ├── index.html          # player shell: library/search/playlists/settings
-│   ├── style.css           # its own UI theme (warm amber/coral)
-│   ├── app.js              # player + adaptive vocal-isolation engine
+│   ├── index.html          # Material shell: app bar, screens, nav bar, FAB,
+│   │                       # mini player, Now Playing, sheet, dialog, menu
+│   ├── style.css           # the app's own Material theme (light + dark)
+│   ├── app.js              # player + adaptive vocal-isolation engine + UI
 │   └── app-info.json       # in-APK version/changelog fallback
 ├── android/                # APK build pipeline (no Android SDK needed)
 │   ├── build_apk.py        # aapt2 → javac/dx → zip → v1+v2+v3 signing
 │   ├── verify_apk.py       # independent re-implementation of AOSP verifiers
 │   ├── bootstrap_tools.sh  # fetches/compiles the toolchain (see BUILDING.md)
 │   ├── sync_assets.sh      # bundles app/ (only!) into assets/www
+│   ├── AndroidManifest.xml # com.vocalpure.app, singleTask, WAKE_LOCK
+│   ├── res/                # adaptive icon (vector), launch screen, light theme
+│   ├── src/.../MainActivity.java  # WebView shell: back button, system bars,
+│   │                       # wake lock, file picker, WAV writer bridge
 │   └── keystore/           # release signing key (intentionally committed)
+├── tests/                  # jsdom smoke tests (app UI + download site)
 └── downloads/
-    ├── VocalPure-v2.8.0.apk        # signed stable app (Android 8.0+) — auto purify
-    ├── VocalPure-v2.7.0.apk        # previous stable (kept for reference)
-    └── VocalPure-v2.8.0-beta.1.apk # signed beta build
+    ├── VocalPure-v2.9.0.apk        # signed stable app (Android 8.0+) — native look
+    ├── VocalPure-v2.9.0-beta.1.apk # signed beta build
+    ├── VocalPure-v2.8.0.apk        # previous stable (kept for reference)
+    └── …
 ```
 
 ## Run the website locally
@@ -101,8 +121,8 @@ The app can also be opened directly in a desktop browser for testing:
 ```bash
 export VP_TOOLS=$HOME/.vp-tools VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ./android/sync_assets.sh
-python3 android/build_apk.py --version-name 2.8.0 --version-code 280 \
-    --out downloads/VocalPure-v2.8.0.apk
+python3 android/build_apk.py --version-name 2.9.0 --version-code 290 \
+    --out downloads/VocalPure-v2.9.0.apk
 python3 android/verify_apk.py downloads/*.apk
 ```
 
@@ -111,9 +131,26 @@ One-time toolchain setup (`pip install jdk4py`, then
 
 After a build, update `app-info.json` (`size`, `sha256`, `updated`,
 `changelog`) — the website picks everything up automatically. The APK
-bunds its own `app-info.json` (used by the app as a version fallback when
+bundles its own `app-info.json` (used by the app as a version fallback when
 the native bridge is unavailable), while the in-app version labels come
-from the native `AppBridge.appInfo()`.
+from the native `VocalPureAndroid.appInfo()` bridge.
+
+## Native shell ↔ app contract
+
+`MainActivity` injects a `VocalPureAndroid` JavaScript interface:
+
+| Call | Purpose |
+|---|---|
+| `appInfo()` | JSON with `versionName`, `versionCode`, `sdk`, `dark` (system night mode) |
+| `setSystemBars(statusHex, navHex, lightTheme)` | status/navigation bar colours follow the in-app theme |
+| `setPlaying(bool)` | holds a partial wake lock while music plays (screen off / background) |
+| `writeFile(name, base64Chunk, isLast)` | streams exported WAVs to `Music/VocalPure` |
+
+The page exposes `window.VocalPureApp = { onBack(), isPlaying(), version }`;
+`onBack()` is called from `onBackPressed()` and returns `true` when it
+consumed the press (closed a menu/dialog/sheet/player or navigated back to
+the Library). When it returns `false` the activity moves to the background
+instead of finishing, so playback continues like any music app.
 
 ## Vocal isolation — adaptive engine
 
@@ -155,10 +192,12 @@ Export renders the exact same chain in an `OfflineAudioContext` to
 - HTML tag-balance validation + every `getElementById` target verified
   present in both the site and the app.
 - Every local `href`/`src` reference verified to exist on disk.
-- Headless DOM tests (jsdom, `/.apptest` harness): app — import, play,
-  FFT analysis, all four modes, stem mixer, EQ, search, playlists,
-  favorites, transport, settings, export, delete (42 checks); site —
-  metadata filling, download links, no-player assertions (15 checks).
+- Headless DOM tests (`cd tests && npm install && npm test`, jsdom):
+  app — boot as a native shell, import, auto purify + FFT analysis, all
+  four modes, stem mixer, transport, EQ, back-button contract, menus,
+  favorites/filters/sort, search, playlists (dialog + sheet), themes,
+  settings, native WAV export, delete/clear (99 checks); site — metadata
+  filling, download links, APK/app-info consistency, no-player assertions.
 - APKs verified with `android/verify_apk.py` (v2/v3 digests + RSA
   signatures + certificate match) **and** androguard (v1+v2+v3 present,
   manifest fields, bundled-asset listing — no website content inside);
