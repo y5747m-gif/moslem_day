@@ -1,9 +1,17 @@
 /* ============================================================
    VocalPure app — standalone music player engine
    Library · playlists · favorites · queue · EQ · sleep timer
-   + adaptive two-track vocal isolation (engine v4)
+   + adaptive two-track vocal isolation (engine v5)
 
-   Engine v4 (what changed vs v3):
+   Engine v5 (what changed vs v4):
+     · AUTO PURIFY — every song is analyzed automatically the
+       moment it is imported (batch FFT, in the background) and
+       its music (instruments) is removed automatically on
+       playback: pure vocals with zero taps. A settings switch
+       turns the automation off; manual modes always win per track.
+     · clarity ring + live strategy card on the Now Playing screen
+
+   Engine v4 (kept as the analysis core):
      · every song is pre-analyzed with a real FFT: center-vs-side
        energy in the vocal band decides the strategy per track
      · stereo "center": 3-band mid extraction (body/core/air) +
@@ -69,7 +77,7 @@
   /* ---------------- persistent settings ---------------- */
   var SETTINGS_KEY = "vp-app-settings-v2";
   var settings = {
-    volume: 80, rate: 1, mode: "original",
+    volume: 80, rate: 1, mode: "original", autoPurify: true,
     stemV: 100, stemI: 100, customV: 70, customI: 70,
     eqOn: true, eq: [0, 0, 0, 0, 0], eqPreset: "normal",
     shuffle: false, repeat: "off"
@@ -96,6 +104,7 @@
       settings.customV = customMem.v; settings.customI = customMem.i;
       settings.eqOn = eqOn; settings.eq = eqGains.slice(); settings.eqPreset = eqPresetName;
       settings.shuffle = shuffle; settings.repeat = repeatMode;
+      settings.autoPurify = autoPurify;
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) { /* ignore */ }
   }
@@ -344,6 +353,10 @@
   var eqBands = [];
   var buffer = null, source = null, graphV = null, graphI = null;
   var mode = "original";
+  /* Auto Purify — every song is analyzed automatically and its music
+     (instruments) is removed automatically: playback starts on the
+     vocals-only stem. The listener can still switch modes any time. */
+  var autoPurify = true;
   var playing = false;
   var startCtxTime = 0, offsetBase = 0, duration = 0;
   var playbackRate = 1, volume = 80, muted = false;
@@ -698,6 +711,8 @@
       drawViz();
       markCurrentRow(); renderQueue(); updateNp();
       updateEngineLine();
+      /* Auto Purify: music is removed automatically for every new track */
+      applyAutoMode();
       if (autoplay) { startAt(0); openNp(); }
       /* run the analyzer (once per song, result persisted) */
       if (!song._profile) {
@@ -708,6 +723,7 @@
             song._profile = p;
             idbPut(cleanRec(song));
             updateEngineLine();
+            renderHome(); renderSearch();
             if (playing && mode !== "original") startAt(currentPos());
           } catch (e) { /* keep default strategy */ }
         }, 300);
@@ -781,12 +797,45 @@
   var MODE_NAMES = { original: "Original", vocals: "🎤 Vocals", karaoke: "🎶 Karaoke", custom: "🎚 My mix" };
 
   function updateEngineLine() {
+    var song = currentSong();
+    var p = song ? song._profile : null;
+
+    /* clarity ring + strategy card on the Now Playing screen */
+    var card = $("np-engine-card");
+    if (card) card.classList.toggle("is-analyzing", !!song && !p);
+    var ring = $("np-clarity-ring"), num = $("np-clarity-num");
+    if (ring && num) {
+      if (p) {
+        ring.style.background = "conic-gradient(var(--accent) " + Math.round(p.clarity * 3.6) + "deg, rgba(255,255,255,0.08) 0deg)";
+        num.textContent = p.clarity + "%";
+      } else {
+        ring.style.background = "conic-gradient(rgba(255,255,255,0.08) 0deg, rgba(255,255,255,0.08) 360deg)";
+        num.textContent = song ? "…" : "–";
+      }
+    }
+    var stratEl = $("np-strategy"), detailEl = $("np-strategy-detail");
+    if (stratEl && detailEl) {
+      if (!song) {
+        stratEl.textContent = "Auto purify engine";
+        detailEl.textContent = "Add songs — they are analyzed automatically, then their music is removed.";
+      } else if (!p) {
+        stratEl.textContent = "Analyzing automatically…";
+        detailEl.textContent = "Measuring the stereo image to pick the strongest isolation strategy.";
+      } else {
+        var lbl = STRATEGY_LABELS[p.strategy] || "isolation";
+        stratEl.textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1) +
+          (autoPurify && mode === "vocals" ? " · music auto-removed" : "");
+        detailEl.textContent = p.stereo
+          ? Math.round(p.centerRatio * 100) + "% of the vocal band is center-locked · est. clarity " + p.clarity + "%"
+          : "Mono file — frequency focus · est. clarity " + p.clarity + "%";
+      }
+    }
+
     var el = $("engine-line");
     if (!el) return;
-    var song = currentSong();
-    if (!song) { el.innerHTML = "The analyzer picks the best strategy for each song automatically."; return; }
+    if (!song) { el.innerHTML = "Every song is <b>analyzed automatically</b> on import — the engine picks the strongest strategy per track."; return; }
+    if (autoPurify && mode === "vocals") { el.innerHTML = "Auto purify is on — the music track was <b>removed automatically</b>; only the pure voice plays. Switch modes above any time."; return; }
     if (mode === "original") { el.innerHTML = "Original mix — untouched audio. Pick a mode above to isolate."; return; }
-    var p = song._profile;
     if (!p) { el.innerHTML = "Analyzing stereo balance… first playback uses the best-guess strategy."; return; }
     var strategy = STRATEGY_LABELS[p.strategy] || "isolation";
     var detail = p.stereo
@@ -819,6 +868,42 @@
 
   function ensureCustomMix() {
     if (mode !== "custom") setMode("custom", {});
+  }
+
+  /**
+   * Auto Purify: silently move to the vocals-only stem when a fresh track
+   * is loaded (called before startAt, so no rebuild is needed). Keeps the
+   * mode buttons in sync. Returns true when it applied.
+   */
+  function applyAutoMode() {
+    if (!autoPurify || mode === "vocals") return false;
+    if (mode === "custom") { customMem.v = stemV; customMem.i = stemI; }
+    mode = "vocals";
+    stemV = 100; stemI = 0;
+    for (var k = 0; k < modeBtns.length; k++) {
+      modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === "vocals");
+    }
+    updateStemUI();
+    updateNp();
+    updateEngineLine();
+    saveSettings();
+    return true;
+  }
+
+  function syncModeButtons() {
+    for (var k = 0; k < modeBtns.length; k++) {
+      modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === mode);
+    }
+  }
+
+  function updateAutoUI() {
+    var sw = $("set-autopurify");
+    if (sw) {
+      sw.classList.toggle("is-on", autoPurify);
+      sw.setAttribute("aria-checked", autoPurify ? "true" : "false");
+    }
+    var pill = $("auto-pill");
+    if (pill) pill.hidden = !autoPurify;
   }
 
   function updateStemUI() {
@@ -924,8 +1009,8 @@
       if (x === 0) vizCtx.moveTo(x, y); else vizCtx.lineTo(x, y);
     }
     var g = vizCtx.createLinearGradient(0, 0, vizW, 0);
-    g.addColorStop(0, "#ffb454");
-    g.addColorStop(1, "#ff5e7d");
+    g.addColorStop(0, "#2fe6c8");
+    g.addColorStop(1, "#3aa6ff");
     vizCtx.strokeStyle = g;
     vizCtx.lineWidth = 2;
     vizCtx.globalAlpha = 0.6;
@@ -941,8 +1026,8 @@
     var n = 40, step = Math.floor(freqData.length / n) || 1;
     var bw = vizW / n;
     var g = vizCtx.createLinearGradient(0, vizH, 0, 0);
-    g.addColorStop(0, "#ffb454");
-    g.addColorStop(1, "#ff5e7d");
+    g.addColorStop(0, "#2fe6c8");
+    g.addColorStop(1, "#3aa6ff");
     vizCtx.fillStyle = g;
     for (var i = 0; i < n; i++) {
       var v = freqData[i * step] / 255;
@@ -1015,11 +1100,12 @@
   function songRowHtml(s, opts) {
     opts = opts || {};
     var dur = s.duration > 0 ? fmtTime(s.duration) : "–:––";
+    var autoFlag = s._profile ? ' <em class="row-auto">✓ auto</em>' : "";
     var isCur = s.id === currentId;
     var html = '<li class="song-row' + (isCur ? " is-current" + (playing ? "" : " is-paused") : "") + '" data-id="' + escapeHtml(s.id) + '">' +
       '<button type="button" class="song-main" aria-label="Play ' + escapeHtml(s.title) + '">' +
       '<span class="song-cover" style="' + coverStyle(s.title) + '" aria-hidden="true">' + escapeHtml(coverLetter(s.title)) + "</span>" +
-      '<span class="song-meta"><strong>' + escapeHtml(s.title) + "</strong><span>" + escapeHtml(s.artist) + " · " + dur + "</span></span>" +
+      '<span class="song-meta"><strong>' + escapeHtml(s.title) + "</strong><span>" + escapeHtml(s.artist) + " · " + dur + autoFlag + "</span></span>" +
       '<span class="song-live" aria-hidden="true"><i></i><i></i><i></i></span>' +
       "</button>";
     if (opts.fav) html += '<button type="button" class="row-btn fav-btn' + (s.favorite ? " is-fav" : "") + '" aria-label="Toggle favorite">' + (s.favorite ? "★" : "☆") + "</button>";
@@ -1226,7 +1312,7 @@
   function updateNp() {
     var s = currentSong();
     var chip = $("np-mode-chip");
-    if (chip) chip.textContent = s ? (MODE_NAMES[mode] || mode) : "—";
+    if (chip) chip.textContent = s ? ((MODE_NAMES[mode] || mode) + (autoPurify && mode === "vocals" ? " · auto" : "")) : "—";
     var fav = $("np-fav");
     if (fav) fav.classList.toggle("is-fav", !!(s && s.favorite));
     var play = $("btn-play");
@@ -1454,6 +1540,48 @@
     });
   }
 
+  /**
+   * Auto Purify: analyze a batch of songs automatically, right after
+   * import (one at a time so the UI stays responsive). The resulting
+   * profile is persisted, so every track plays with the correct
+   * strategy — and its music already removed — from the very first note.
+   */
+  var analyzing = false;
+  function autoAnalyze(ids) {
+    var todo = [];
+    for (var i = 0; i < ids.length; i++) {
+      var s = songById(ids[i]);
+      if (s && !s._profile) todo.push(s);
+    }
+    if (!todo.length || analyzing) { if (todo.length) queueAnalyze(todo); return; }
+    analyzing = true;
+    var total = todo.length, k = 0;
+    toast("Analyzing " + total + (total === 1 ? " song" : " songs") + " automatically…");
+    (function step() {
+      var s = todo[k++];
+      if (!s) {
+        analyzing = false;
+        toast("Analysis complete — music will be removed automatically.", "success");
+        renderHome(); renderSearch();
+        if (openPlaylistId) renderPlaylistSongs();
+        updateEngineLine();
+        var pending = analyzeQueue.slice(); analyzeQueue = [];
+        if (pending.length) autoAnalyze(pending);
+        return;
+      }
+      getBuffer(s).then(function (buf) {
+        try { s._profile = analyzeBuffer(buf); idbPut(cleanRec(s)); }
+        catch (e) { /* falls back to first-play analysis */ }
+      }).catch(function () { /* retried on first play */ }).then(function () {
+        setTimeout(step, 40);
+      });
+    })();
+  }
+  var analyzeQueue = [];
+  function queueAnalyze(songs) {
+    for (var i = 0; i < songs.length; i++) analyzeQueue.push(songs[i].id);
+  }
+
   /* ============================================================
      Import
      ============================================================ */
@@ -1483,6 +1611,7 @@
         if (ok) toast("Added " + ok + " song" + (ok === 1 ? "" : "s") + " to your library.", "success");
         if (bad) toast(bad + " file(s) skipped (not audio or unreadable).", "error");
         if (big) toast(big + " file(s) exceeded 80 MB and were skipped.", "error");
+        if (newIds.length) autoAnalyze(newIds);
         if (newIds.length && !currentId) playFromList(newIds, 0);
         return;
       }
@@ -1595,6 +1724,26 @@
   });
 
   /* settings */
+  on($("set-autopurify"), "click", function () {
+    autoPurify = !autoPurify;
+    updateAutoUI();
+    saveSettings();
+    if (autoPurify) {
+      if (buffer && mode !== "vocals") {
+        if (mode === "custom") { customMem.v = stemV; customMem.i = stemI; }
+        mode = "vocals"; stemV = 100; stemI = 0;
+        for (var k = 0; k < modeBtns.length; k++) {
+          modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === "vocals");
+        }
+        updateStemUI(); updateNp();
+        if (playing) startAt(currentPos()); else applyStemGains();
+        updateEngineLine();
+      }
+      toast("Auto purify on — music is removed automatically.", "success");
+    } else {
+      toast("Auto purify off — songs play untouched until you pick a mode.");
+    }
+  });
   on($("set-volume"), "input", function () {
     volume = Number($("set-volume").value) || 0;
     if (volume > 0 && muted) muted = false;
@@ -1817,6 +1966,10 @@
     eqGains = settings.eq.slice(); eqOn = !!settings.eqOn;
     eqPresetName = settings.eqPreset || "normal";
     shuffle = !!settings.shuffle; repeatMode = settings.repeat || "off";
+    autoPurify = settings.autoPurify !== false;
+    /* Auto Purify: the app launches straight into vocals-only (music removed) */
+    if (autoPurify) { mode = "vocals"; stemV = 100; stemI = 0; }
+    syncModeButtons();
 
     $("set-volume").value = String(volume);
     syncVolumeUI();
@@ -1827,6 +1980,7 @@
     $("btn-repeat").setAttribute("aria-pressed", repeatMode !== "off" ? "true" : "false");
     updateEqUI();
     updateStemUI();
+    updateAutoUI();
 
     /* version + changelog: native bridge first, bundled app-info.json as
        fallback (fetch, then XHR for older WebViews) */

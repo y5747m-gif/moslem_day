@@ -96,15 +96,15 @@
 
   /* ---------------- app info + downloads ---------------- */
   var FALLBACK_INFO = {
-    version: "v2.7.0",
-    versionPlain: "2.7.0",
+    version: "v2.8.0",
+    versionPlain: "2.8.0",
     betaVersion: "v2.8.0-beta.1",
     size: "—",
     betaSize: "—",
-    updated: "Sep 18, 2026",
+    updated: "Sep 19, 2026",
     minAndroid: "8.0+",
     sha256: "…",
-    stableFile: "downloads/VocalPure-v2.7.0.apk",
+    stableFile: "downloads/VocalPure-v2.8.0.apk",
     betaFile: "downloads/VocalPure-v2.8.0-beta.1.apk"
   };
 

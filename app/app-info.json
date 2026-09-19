@@ -1,14 +1,13 @@
 {
-  "version": "2.7.0",
-  "updated": "Sep 18, 2026",
+  "version": "2.8.0",
+  "updated": "Sep 19, 2026",
   "minAndroid": "8.0+",
-  "tagline": "Standalone music player with adaptive vocal isolation",
+  "tagline": "Standalone player that analyzes every song and removes the music automatically",
   "changelog": [
-    "VocalPure is now a standalone app — a complete music player, fully separate from the download website",
-    "Improved isolation engine: every song is analyzed with FFT and the strongest strategy is picked per track (center extraction, center blend, or frequency focus)",
-    "Sharper karaoke: multi-band side extraction with bass return, deeper vocal-band notch on mono files",
-    "Cleaner vocals-only: 3-band mid extraction with presence boost and per-stem limiting",
-    "Library, playlists, favorites, search, queue, 5-band EQ, sleep timer and playback speed",
-    "WAV export saves straight to your phone (Music/VocalPure)"
+    "Auto purify: every song is analyzed the moment you import it (real FFT, on device) and its music is removed automatically on playback — pure vocals with zero taps",
+    "Background batch analysis: the whole import is analyzed per song before the first note plays; “✓ auto” marks analyzed tracks",
+    "Clarity ring + live strategy card on the Now Playing screen",
+    "New professional identity: deep-ink UI with teal signal accents, gold details and a redesigned launcher icon",
+    "Still fully standalone: library, search, playlists, favorites, queue, 5-band EQ, sleep timer, WAV export — completely separate from the download website"
   ]
 }
