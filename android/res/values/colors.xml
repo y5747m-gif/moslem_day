@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material light surface used by the app UI -->
+    <color name="vp_surface">#FFF8FAF5</color>
+    <color name="vp_nav">#FFECEFE9</color>
+    <color name="vp_primary">#FF1B6B4A</color>
+    <color name="ic_launcher_background">#FF1B6B4A</color>
+</resources>

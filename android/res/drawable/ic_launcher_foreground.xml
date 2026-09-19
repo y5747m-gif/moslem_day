@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon foreground: white microphone with mint sound arcs.
+     108x108 viewport; artwork stays inside the 66dp safe circle. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- microphone capsule -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M46,30 A8,8 0 0,1 62,30 V48 A8,8 0 0,1 46,48 Z"/>
+    <!-- cradle -->
+    <path
+        android:strokeColor="#FFA8F2C9"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M40,46 a14,14 0 0,0 28,0"/>
+    <!-- stem + base -->
+    <path
+        android:strokeColor="#FFA8F2C9"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,60 v10 M45,72 h18"/>
+    <!-- sound arcs -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:strokeAlpha="0.85"
+        android:pathData="M32,36 a20,20 0 0,0 0,20 M76,36 a20,20 0 0,1 0,20"/>
+</vector>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Native launch screen shown by the window before the UI is ready:
+     plain light surface with the centered app logo (no web content). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/vp_surface"/>
+    <item
+        android:drawable="@drawable/ic_splash_logo"
+        android:gravity="center"
+        android:width="120dp"
+        android:height="120dp"/>
+</layer-list>

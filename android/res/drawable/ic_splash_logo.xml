@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launch screen logo: rounded green tile with the app glyph. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF1B6B4A"
+        android:pathData="M24,0 h60 a24,24 0 0,1 24,24 v60 a24,24 0 0,1 -24,24 h-60 a24,24 0 0,1 -24,-24 v-60 a24,24 0 0,1 24,-24 z"/>
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M46,30 A8,8 0 0,1 62,30 V48 A8,8 0 0,1 46,48 Z"/>
+    <path
+        android:strokeColor="#FFA8F2C9"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M40,46 a14,14 0 0,0 28,0"/>
+    <path
+        android:strokeColor="#FFA8F2C9"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M54,60 v10 M45,72 h18"/>
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:strokeAlpha="0.85"
+        android:pathData="M32,36 a20,20 0 0,0 0,20 M76,36 a20,20 0 0,1 0,20"/>
+</vector>

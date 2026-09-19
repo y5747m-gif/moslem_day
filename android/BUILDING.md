@@ -26,8 +26,8 @@ export VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ```bash
 ./android/sync_assets.sh                # copies the standalone app (app/) into android/assets/www
 python3 android/build_apk.py \
-    --version-name 2.7.0 --version-code 270 \
-    --out downloads/VocalPure-v2.7.0.apk
+    --version-name 2.9.0 --version-code 290 \
+    --out downloads/VocalPure-v2.9.0.apk
 ```
 
 Every build is verified inside the script:
@@ -46,6 +46,22 @@ Run the standalone verifier any time:
 ```bash
 python3 android/verify_apk.py downloads/*.apk
 ```
+
+## Resources & shell
+
+* `res/mipmap-anydpi-v26/ic_launcher.xml` — adaptive icon (green tile +
+  vector microphone); legacy PNGs in `res/mipmap-*` are rendered from the
+  same artwork for launchers that ignore adaptive icons.
+* `res/drawable/splash.xml` — the window background used as a launch
+  screen (light surface + centred logo), so the first frame is never a
+  blank WebView.
+* `res/values/styles.xml` — `Theme.Material.Light.NoActionBar` with light
+  status/navigation bars; the page switches them at runtime through the
+  `VocalPureAndroid.setSystemBars()` bridge when the user picks Dark.
+* `src/com/vocalpure/app/MainActivity.java` is the only Java source. It is
+  compiled against API 25 stubs with `javac` 8 + `dx`, so keep it free of
+  lambdas, `R` references and API 26+ symbols (use int constants /
+  reflection where needed).
 
 ## Signing key
 
