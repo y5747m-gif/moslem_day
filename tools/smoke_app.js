@@ -382,21 +382,45 @@ function file(name, size, type) {
   check("notification seek moves the position", Math.abs(win.document.querySelector("audio").currentTime - 5) < 0.01,
     String(win.document.querySelector("audio").currentTime));
 
+  for (const loss of ["focus:transient", "focus:duck"]) {
+    win.onNativeMediaAction(loss);
+    await sleep(20);
+    check(loss + " pauses", win.document.querySelector("audio").paused);
+    win.onNativeMediaAction("focus:gain");
+    await sleep(20);
+    check(loss + " resumes on gain", !win.document.querySelector("audio").paused);
+  }
+  win.onNativeMediaAction("focus:transient");
+  win.onNativeMediaAction("pause");
+  win.onNativeMediaAction("focus:gain");
+  await sleep(20);
+  check("manual pause cancels focus resume", win.document.querySelector("audio").paused);
+  win.onNativeMediaAction("play");
+  await sleep(20);
+  win.onNativeMediaAction("focus:loss");
+  win.onNativeMediaAction("focus:gain");
+  await sleep(20);
+  check("permanent focus loss does not resume", win.document.querySelector("audio").paused);
+  win.onNativeMediaAction("play");
+  await sleep(20);
+
   console.log("\nAudio output routing");
   check("output selector exists in settings", !!$("set-audio-output") && $("set-audio-output").value === "auto",
     $("set-audio-output") ? $("set-audio-output").value : "missing");
-  setInput($("set-audio-output"), "speaker");
-  check("settings change routes natively", mediaCalls.output[mediaCalls.output.length - 1] === "speaker",
+  setInput($("set-audio-output"), "wired");
+  check("settings change routes natively", mediaCalls.output[mediaCalls.output.length - 1] === "wired",
     JSON.stringify(mediaCalls.output));
   setInput($("set-audio-output"), "bluetooth");
   check("bluetooth is selected", $("set-audio-output").value === "bluetooth");
   win.onNativeMediaAction("bt:disconnected");
   await sleep(20);
-  check("Bluetooth disconnect falls back to the loudspeaker",
-    $("set-audio-output").value === "speaker" && mediaCalls.output[mediaCalls.output.length - 1] === "speaker",
-    $("set-audio-output").value);
-  win.onNativeMediaAction("output-sync:earpiece");
-  check("native output cycling is mirrored in the settings UI", $("set-audio-output").value === "earpiece");
+  check("Bluetooth disconnect pauses without forcing the loudspeaker",
+    win.document.querySelector("audio").paused && $("set-audio-output").value === "bluetooth");
+  win.onNativeMediaAction("headset:plugged");
+  await sleep(20);
+  check("reconnect does not autoplay", win.document.querySelector("audio").paused);
+  win.onNativeMediaAction("output-sync:wired");
+  check("native output preference is mirrored in settings", $("set-audio-output").value === "wired");
   setInput($("set-audio-output"), "auto");
   check("back to auto routing", mediaCalls.output[mediaCalls.output.length - 1] === "auto");
 

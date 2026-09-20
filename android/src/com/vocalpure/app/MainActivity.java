@@ -2,7 +2,6 @@ package com.vocalpure.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
@@ -15,6 +14,7 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
+import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
@@ -62,15 +62,9 @@ import java.util.Set;
  *
  *   · proper audio focus (AudioFocusRequest with a real focus listener —
  *     the old null-listener request is gone),
- *   · explicit output routing: auto / loudspeaker / earpiece /
- *     Bluetooth A2DP / wired headset (the same selector the pinned
- *     notification exposes),
- *   · A2DP + headset + noisy broadcast receivers so a Bluetooth or
- *     wired connection change never tears the WebView down and never
- *     leaves audio stuck on the wrong device,
- *   · a partial wake lock during playback so the CPU cannot sleep and
- *     underrun the Bluetooth codec (the classic "song stutters when
- *     the speaker connects" bug),
+ *   · system-managed media routing (never switch music into call/SCO mode),
+ *   · standard A2DP/headset/noisy broadcasts, pausing on disconnect,
+ *   · a partial wake lock during playback to reduce sleep-related underruns,
  *   · configChanges coverage so orientation/keyboard/nav-bar/Bluetooth
  *     state changes never recreate the activity mid-song.
  */
@@ -95,16 +89,12 @@ public class MainActivity extends Activity {
     private AudioFocusRequest focusRequest;
     private boolean focusHeld = false;
     private PowerManager.WakeLock wakeLock;
-    /* the A2dp profile proxy: the platform type is @hide, so it is kept as
-       Object and driven through reflection (no hidden types at compile time) */
-    private Object a2dpProxy;
-    private volatile boolean btA2dpConnected = false;
     private BroadcastReceiver audioReceiver;
 
     /** Audio output selected by the user (notification or settings).
         volatile: the JS bridge thread writes it, the UI thread reads it. */
     private static volatile String audioOutput = "auto";
-    private static final String[] OUTPUT_CYCLE = {"auto", "speaker", "earpiece", "bluetooth", "wired"};
+    private static final String[] OUTPUT_CYCLE = {"auto", "bluetooth", "wired"};
 
     /* ------------------------------------------------------------------ */
     /* Static helpers used by PlayerService (same process)                 */
@@ -451,7 +441,9 @@ public class MainActivity extends Activity {
             if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
                 focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
                 focusHeld = false;
-                runJs("onNativeMediaAction('focus:loss')");
+                runJs(focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+                        ? "onNativeMediaAction('focus:transient')"
+                        : "onNativeMediaAction('focus:loss')");
             } else if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
                 runJs("onNativeMediaAction('focus:duck')");
             } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
@@ -485,6 +477,7 @@ public class MainActivity extends Activity {
             }
         } catch (Throwable ignored) {
         }
+        if (!focusHeld) runJs("onNativeMediaAction('focus:loss')");
     }
 
     public void abandonFocusInternal() {
@@ -505,55 +498,38 @@ public class MainActivity extends Activity {
     /* Output routing — auto / speaker / earpiece / bluetooth / wired      */
     /* ------------------------------------------------------------------ */
 
-    public boolean btConnected() {
+    private boolean hasOutput(int type) {
+        if (audioManager == null) return false;
         try {
-            Object p = a2dpProxy;
-            if (p != null) {
-                Object state = p.getClass().getMethod("getConnectionState").invoke(p);
-                if (state instanceof Integer) {
-                    return ((Integer) state) == BluetoothProfile.STATE_CONNECTED;
-                }
+            for (AudioDeviceInfo device : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                if (device.getType() == type) return true;
             }
-        } catch (Throwable ignored) {
-        }
-        return btA2dpConnected;
+        } catch (RuntimeException ignored) { }
+        return false;
+    }
+
+    public boolean btConnected() {
+        return hasOutput(AudioDeviceInfo.TYPE_BLUETOOTH_A2DP);
     }
 
     public boolean wiredConnected() {
-        try { return audioManager != null && audioManager.isWiredHeadsetOn(); }
-        catch (Throwable t) { return false; }
+        return hasOutput(AudioDeviceInfo.TYPE_WIRED_HEADSET)
+                || hasOutput(AudioDeviceInfo.TYPE_WIRED_HEADPHONES)
+                || hasOutput(AudioDeviceInfo.TYPE_USB_DEVICE);
     }
 
-    /** Applies the selected output; returns the mode actually in effect. */
+    /** WebView media uses Android's media route, not the call/SCO route.
+        Speakerphone flags cannot select a WebAudio media sink. Never enter
+        communication mode or force a speaker fallback on disconnect. */
     public String applyRouting() {
         if (audioManager == null) return audioOutput;
         try {
-            if ("earpiece".equals(audioOutput)) {
-                audioManager.setSpeakerphoneOn(false);
-                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-            } else if ("speaker".equals(audioOutput)) {
-                audioManager.setMode(AudioManager.MODE_NORMAL);
-                audioManager.setSpeakerphoneOn(true);
-            } else if ("bluetooth".equals(audioOutput)) {
-                audioManager.setSpeakerphoneOn(false);
-                audioManager.setMode(AudioManager.MODE_NORMAL);
-                if (!btConnected()) {
-                    audioOutput = "speaker";          /* no A2DP: use the phone speaker */
-                    audioManager.setSpeakerphoneOn(true);
-                }
-            } else if ("wired".equals(audioOutput)) {
-                audioManager.setSpeakerphoneOn(false);
-                audioManager.setMode(AudioManager.MODE_NORMAL);
-                if (!wiredConnected()) {
-                    audioOutput = "speaker";          /* no jack: use the phone speaker */
-                    audioManager.setSpeakerphoneOn(true);
-                }
-            } else { /* auto — let the system pick: wired > Bluetooth > speaker */
-                audioManager.setMode(AudioManager.MODE_NORMAL);
-                audioManager.setSpeakerphoneOn(false);
+            if ("earpiece".equals(audioOutput) || "speaker".equals(audioOutput)
+                    || ("bluetooth".equals(audioOutput) && !btConnected())
+                    || ("wired".equals(audioOutput) && !wiredConnected())) {
+                audioOutput = "auto";
             }
-        } catch (Throwable ignored) {
-        }
+        } catch (RuntimeException ignored) { }
         return audioOutput;
     }
 
@@ -599,20 +575,18 @@ public class MainActivity extends Activity {
                 @Override public void onReceive(Context context, Intent intent) {
                     if (intent == null || intent.getAction() == null) return;
                     String action = intent.getAction();
-                    if ("android.bluetooth.device.action.A2DP_CONNECTION_STATE".equals(action)) {
+                    if ("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED".equals(action)) {
                         int state = intent.getIntExtra(
-                                "android.bluetooth.device.extra.STATE", -1);
+                                "android.bluetooth.profile.extra.STATE", -1);
                         if (state == BluetoothProfile.STATE_CONNECTED) {
-                            btA2dpConnected = true;
                             runJs("onNativeMediaAction('bt:connected')");
                         } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
-                            btA2dpConnected = false;
                             runJs("onNativeMediaAction('bt:disconnected')");
                         }
                         try { applyRouting(); } catch (Throwable ignored) { }
-                    } else if ("android.bluetooth.device.action.ACL_CONNECTED".equals(action)) {
-                        try { applyRouting(); } catch (Throwable ignored) { }
+
                     } else if (Intent.ACTION_HEADSET_PLUG.equals(action)) {
+                        if (isInitialStickyBroadcast()) return;
                         int state = intent.getIntExtra("state", -1);
                         if (state == 0) {
                             runJs("onNativeMediaAction('headset:unplugged')");
@@ -626,44 +600,10 @@ public class MainActivity extends Activity {
                 }
             };
             IntentFilter f = new IntentFilter();
-            f.addAction("android.bluetooth.device.action.A2DP_CONNECTION_STATE");
-            f.addAction("android.bluetooth.device.action.ACL_CONNECTED");
+            f.addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED");
             f.addAction(Intent.ACTION_HEADSET_PLUG);
             f.addAction("android.media.action.AUDIO_BECOMING_NOISY");
             registerReceiver(audioReceiver, f);
-        } catch (Throwable ignored) {
-        }
-        try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter != null && adapter.isEnabled()) {
-                /* ServiceListener.onServiceConnected takes a @hide proxy type,
-                   so the listener itself is a java.lang.reflect.Proxy — the
-                   hidden class never appears in our compiled code. */
-                final Object listener = java.lang.reflect.Proxy.newProxyInstance(
-                        getClass().getClassLoader(),
-                        new Class<?>[]{ BluetoothProfile.ServiceListener.class },
-                        new java.lang.reflect.InvocationHandler() {
-                            @Override public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
-                                try {
-                                    if ("onServiceConnected".equals(method.getName())
-                                            && args != null && args.length >= 1) {
-                                        a2dpProxy = args[0];
-                                        try {
-                                            Object st = a2dpProxy.getClass()
-                                                    .getMethod("getConnectionState").invoke(a2dpProxy);
-                                            btA2dpConnected = st instanceof Integer
-                                                    && (Integer) st == BluetoothProfile.STATE_CONNECTED;
-                                        } catch (Throwable ignored) { }
-                                    } else if ("onServiceDisconnected".equals(method.getName())) {
-                                        a2dpProxy = null;
-                                    }
-                                } catch (Throwable ignored) { }
-                                return null;
-                            }
-                        });
-                adapter.getProfileProxy(this, (BluetoothProfile.ServiceListener) listener,
-                        BluetoothProfile.A2DP);
-            }
         } catch (Throwable ignored) {
         }
     }
@@ -673,18 +613,6 @@ public class MainActivity extends Activity {
             if (audioReceiver != null) {
                 unregisterReceiver(audioReceiver);
                 audioReceiver = null;
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter != null && a2dpProxy != null) {
-                /* closeProfileProxy also takes the @hide type → reflection */
-                java.lang.reflect.Method m = BluetoothAdapter.class.getMethod(
-                        "closeProfileProxy", int.class,
-                        Class.forName("android.bluetooth.BluetoothProxyProxy"));
-                m.invoke(adapter, BluetoothProfile.A2DP, a2dpProxy);
-                a2dpProxy = null;
             }
         } catch (Throwable ignored) {
         }

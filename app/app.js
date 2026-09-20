@@ -119,7 +119,7 @@
     if (AUDIO_OUTPUTS.indexOf(settings.audioOutput) < 0) settings.audioOutput = "auto";
     if (["off", "all", "one"].indexOf(settings.repeat) < 0) settings.repeat = "off";
   }
-  var AUDIO_OUTPUTS = ["auto", "speaker", "earpiece", "bluetooth", "wired"];
+  var AUDIO_OUTPUTS = ["auto", "bluetooth", "wired"];
   var OUTPUT_LABELS = {
     auto: "Auto (system)", speaker: "Loudspeaker", earpiece: "Phone earpiece",
     bluetooth: "Bluetooth", wired: "Wired headset"
@@ -669,6 +669,7 @@
   var loaded = false, playing = false, wantsPlay = false;
   var duration = 0, playbackRate = 1, volume = 80, muted = false;
   var aiStrength = "max", aiBoostDb = 6, aiDenoise = true;
+  var resumeAfterFocus = false;
   var audioOutput = "auto";           /* auto | speaker | earpiece | bluetooth | wired */
   var exportState = null;             /* set by the WAV export section */
 
@@ -884,7 +885,16 @@
         stepNext();
       } else if (action === "prev") {
         stepPrev();
+      } else if (action === "focus:transient" || action === "focus:duck") {
+        var wasPlaying = playing || resumeAfterFocus;
+        pausePlayback();
+        resumeAfterFocus = wasPlaying;
+      } else if (action === "focus:gain") {
+        var shouldResume = resumeAfterFocus;
+        resumeAfterFocus = false;
+        if (shouldResume && loaded && !playing) startAt(currentPos());
       } else if (action === "focus:loss") {
+        resumeAfterFocus = false;
         /* another app owns the speaker — pause so we never fight for focus */
         if (playing) pausePlayback();
       } else if (action.indexOf("output-sync:") === 0) {
@@ -906,22 +916,13 @@
         }
       } else if (action === "bt:connected") {
         if (audioOutput === "bluetooth") doAudioRouting();
-        else toast("Bluetooth connected — playing in high-quality A2DP.", "success");
-      } else if (action === "bt:disconnected") {
-        if (audioOutput === "bluetooth") {
-          audioOutput = "speaker";
-          doAudioRouting();
-          syncAudioOutputUI();
-          saveSettings();
-          toast("Bluetooth disconnected — switched to the loudspeaker.", "info");
-        }
-      } else if (action === "headset:unplugged") {
-        if (playing) {
-          pausePlayback();
-          toast("Headset unplugged — playback paused.", "info");
-        }
+        else toast("Bluetooth connected — Android manages the media output.", "info");
+      } else if (action === "bt:disconnected" || action === "headset:unplugged") {
+        pausePlayback();
+        toast("Audio device disconnected — playback paused. Choose an output before resuming.", "info");
       } else if (action === "headset:plugged") {
-        if (wantsPlay && loaded && !playing) startAt(currentPos());
+        // Connecting a device must not override a manual pause or start audio.
+        syncAudioOutputUI();
       }
     } catch (e) { /* a native callback must never crash the page */ }
   };
@@ -932,7 +933,7 @@
   function ensureCtx() {
     if (!AC) return false;
     if (!actx) {
-      try { actx = new AC(); } catch (e) { return false; }
+      try { actx = new AC({ latencyHint: "playback" }); } catch (e) { return false; }
       comp = actx.createDynamicsCompressor();
       comp.threshold.value = -10; comp.knee.value = 12; comp.ratio.value = 5;
       comp.attack.value = 0.004; comp.release.value = 0.2;
@@ -1206,6 +1207,8 @@
   }
 
   function pausePlayback() {
+    resumeAfterFocus = false;
+    wantsPlay = false;
     if (audioEl && !audioEl.paused) { try { audioEl.pause(); } catch (e) { /* ignore */ } }
   }
 

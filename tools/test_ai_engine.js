@@ -239,6 +239,24 @@ const spOutMusic = bandEnergy(musicOnly.outL, SR, bothSeg[0], bothSeg[1], 400, 3
 const snrIn = dB(spIn / Math.max(spInMusic, 1e-20)), snrOut = dB(spOut / Math.max(spOutMusic, 1e-20));
 check("voice/music ratio improves", snrOut - snrIn > 6, "in " + round(snrIn, 1) + " dB → out " + round(snrOut, 1) + " dB (+" + round(snrOut - snrIn, 1) + ")");
 
+/* Max must discard side energy even while voice opens the same bins. */
+for (const sr of [44100, 48000]) {
+  const { Processor: P } = loadEngine(sr);
+  const fixture = makeSignals(sr, 10);
+  const result = run(P, { L: fixture.mixL, R: fixture.mixR, sr, n: fixture.n },
+    { strength: "max" });
+  let side = 0;
+  for (let i = 0; i < result.outL.length; i++) side += (result.outL[i] - result.outR[i]) ** 2;
+  const sideDb = dB(side / Math.max(energy(result.outL, 0, result.outL.length) * result.outL.length, 1e-20));
+  check("max removes side-channel leakage at " + sr, sideDb < -100, round(sideDb, 1) + " dB");
+  const vocal = run(P, { L: fixture.voiceL, R: fixture.voiceR, sr, n: fixture.n },
+    { strength: "max" });
+  const from = 5 * sr, to = 9 * sr;
+  const retention = dB(energy(vocal.outL, from + D, to + D) /
+    Math.max(energy(fixture.voiceL, from, to), 1e-20));
+  check("max retains centred synthetic vocal at " + sr, retention > -16, round(retention, 1) + " dB");
+}
+
 /* mono material must still work (spatial cue disabled) */
 {
   const n = SR * 8;

@@ -1,9 +1,14 @@
 # VocalPure — Download site + standalone Android music player
 
-VocalPure is an Android music player whose exclusive advantage is that it
-**removes the music automatically**: an on-device AI engine isolates the
-voice of every song while it streams, so the listener only ever hears the
-words — in real time, on device, offline, with no mode to choose.
+VocalPure is an Android music player with an offline, real-time **spectral
+voice-enhancement engine**. It reduces accompaniment, but is not a trained
+neural source-separation model and cannot guarantee music-free vocals.
+
+> **Unreleased source fixes (2026-09-20):** corrected Bluetooth broadcasts,
+> system-managed media routing, transient focus recovery, safe disconnect
+> pauses, playback buffering hint, and centre extraction in Max. The existing
+> v2.12.0 APK in `downloads/` has **not** been rebuilt with these changes.
+> See `tools/AUDIO_FIX_NOTES.md` for validation and remaining limitations.
 
 The project has two completely separate parts:
 
@@ -19,15 +24,11 @@ The project has two completely separate parts:
 
 ## The app — features
 
-- **AI voice engine (always on)** — there is exactly one playback path:
-  the AI. No mode selector, no stem mixer, no music fader and no karaoke
-  export exist anywhere in the app; the listener hears the isolated voice,
-  never the instruments.
-- **100% Isolation by default** — the **Max** preset is the default and now
-  runs the *pure* (hard) mask: every bin the engine classifies as music is
-  driven to full silence (zero floor, hard 115 Hz–9 kHz vocal band,
-  logit gate), and a sustained-instrument suppressor fades out drones and
-  unchanging tones within ~2 s. Voice only, zero music residue.
+- **Always-on spectral voice enhancement** — playback is routed through the
+  worklet, with no unprocessed fallback if initialization fails.
+- **Max / Center voice** — combines spectral gating with centre extraction to
+  reduce stereo accompaniment. Mono/centred instruments can still pass, and
+  off-centre vocals or reverb can be lost. This is not “100% isolation”.
 - **Cover art from the file itself** — embedded artwork is extracted
   straight from the audio bytes (ID3v2.2/.3/.4 APIC for MP3, FLAC PICTURE
   block, M4A/MP4 `covr` atom — moov at the front *or* the end — and OGG
@@ -38,14 +39,12 @@ The project has two completely separate parts:
   foreground notification (MediaSession + MediaStyle) shows the cover
   thumbnail, track title/artist, play/pause, next/previous and a one-tap
   **output switch**; it keeps working with the app in the background.
-- **Stable audio on every output** — the stutter/cut-outs on external
-  speakers are fixed at the root: a real `AudioFocusRequest` with a live
-  focus listener (pause on loss, resume on gain), explicit routing between
-  loudspeaker / earpiece / Bluetooth A2DP / wired (the same selector the
-  notification uses, with automatic fallback), A2DP + headset-plug +
-  noisy-cable broadcast tracking, a partial wake lock during playback and
-  config-change immunity so Bluetooth state changes never tear the app
-  down mid-song.
+- **External audio handling** — Android manages the media route; the app does
+  not force call mode or a speaker fallback. Correct A2DP/headset broadcasts
+  pause on disconnect without autoplay on reconnect. Transient audio-focus
+  interruptions resume only when playback was active and not manually paused.
+  A playback latency hint gives the browser room for buffering. Physical-device
+  testing is still required; these changes do not guarantee stutter-free audio.
 - **Streamed playback (no more crashes on big files)** — songs are piped
   into the engine through a media element (`blob:` for imported files, the
   Android streaming bridge with real HTTP **range** support for phone-library
