@@ -130,6 +130,19 @@ check("app routes playback through the AI engine", /AudioWorkletNode/.test(read(
 check("no decodeAudioData of whole songs for playback", !/decodeArrayBuffer\(/.test(read("app/app.js")) ||
   !/getBuffer\(/.test(read("app/app.js")));
 
+/* --------------------------------------------------- fail-closed graph */
+section("Fail-closed audio graph (no unfiltered path)");
+{
+  const appSrc = read("app/app.js");
+  const engSrc = read("app/vp-ai-engine.js");
+  check("no direct unfiltered path to the output", !/mediaSrc\.connect\(voiceGain\)/.test(appSrc));
+  check("no weak filter fallback", !/useFilterEngine/.test(appSrc));
+  check("no unity-mask bypass in the worklet", !/[pd]\.bypass/.test(engSrc));
+  check("engine failures surface a visible error",
+    /engineError/.test(appSrc) && /AI engine unavailable/.test(appSrc));
+  check("selective disconnect() (old-WebView hazard) is gone", !/\.disconnect\(voiceGain\)/.test(appSrc));
+}
+
 /* --------------------------------------------------------------- app-info */
 section("Release metadata");
 const info = JSON.parse(read("app-info.json"));

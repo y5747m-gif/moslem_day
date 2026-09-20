@@ -1,11 +1,15 @@
 {
-  "version": "2.10.0",
+  "version": "2.11.0",
   "updated": "Sep 20, 2026",
   "minAndroid": "8.0+",
   "tagline": "Standalone player with an on-device AI voice engine — music removed automatically",
   "downloadPage": "https://github.com/y5747m-gif/moslem_day",
   "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
+    "Fail-closed voice isolation: if the AI engine cannot start, playback stays silent with a clear reason instead of playing the music unfiltered — tap “Re-learn song” in Settings to retry",
+    "New sustained-instrument suppressor: organs, drones and unchanging instrumental tones fade out within about 2 seconds (fully muted at Max)",
+    "Strong is now the default separation strength",
+    "Appearance applies everywhere: themes repaint the whole background, wallpaper mode turns cards translucent, and every change shows a confirmation",
     "4K Precision mode: maximum AI separation with a tighter gate and near-zero residual floor for more exact music removal",
     "Maximum source quality: streamed playback keeps the original file at its highest available quality without adding compression",
     "Pinned Arabic notice highlighting high-quality audio and precise music removal",

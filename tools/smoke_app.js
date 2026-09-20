@@ -180,7 +180,7 @@ function boot(opts) {
   win.AudioNode = function () {};
   win.URL.createObjectURL = () => "blob:mock/" + Math.random().toString(36).slice(2);
   win.URL.revokeObjectURL = () => {};
-  win.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.10.0", changelog: ["AI voice engine", "large files"] }) });
+  win.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.11.0", changelog: ["AI voice engine", "large files"] }) });
   /* a fresh factory per boot so scenarios cannot see each other's songs */
   win.indexedDB = new FakeIndexedDB.IDBFactory();
   win.IDBKeyRange = FakeIndexedDB.IDBKeyRange;
@@ -209,7 +209,7 @@ function boot(opts) {
 
   const written = [];
   win.VocalPureAndroid = {
-    appInfo: () => JSON.stringify({ versionName: "2.10.0", versionCode: 2100 }),
+    appInfo: () => JSON.stringify({ versionName: "2.11.0", versionCode: 2110 }),
     hasStoragePermission: () => true,
     requestStoragePermission: () => {},
     openAppSettings: () => {},
@@ -258,7 +258,7 @@ function file(name, size, type) {
 
   console.log("\nBoot");
   check("no runtime errors on launch", errors.length === 0, errors.slice(0, 3).join(" | "));
-  check("version shown from the Android bridge", /2\.10\.0/.test($("set-version").textContent), $("set-version").textContent);
+  check("version shown from the Android bridge", /2\.11\.0/.test($("set-version").textContent), $("set-version").textContent);
   check("changelog rendered from app-info.json", $("set-changelog").children.length === 2);
   check("restored/added songs appear in the library", /2/.test($("set-song-count").textContent), $("set-song-count").textContent);
 
@@ -272,8 +272,15 @@ function file(name, size, type) {
   check("AI worklet node created", MockWorkletNode.instances.length === 1 && MockWorkletNode.instances[0].name === "vp-ai-voice",
     MockWorkletNode.instances.length + " node(s)");
   const firstParams = workletParams.find((m) => m && m.t === "params");
-  check("engine params sent (strength, gate, capture)", !!firstParams && firstParams.strength === "balanced" && typeof firstParams.capture === "boolean",
+  check("engine params sent (strength, gate, capture)", !!firstParams && firstParams.strength === "strong" && typeof firstParams.capture === "boolean",
     JSON.stringify(firstParams || {}));
+  /* the worklet announces itself; only then does the app consider the engine live */
+  const readyPort = MockWorkletNode.instances[0].port.onmessage;
+  readyPort({ data: { t: "ready", engine: "vp-ai-v6", sr: 48000, fft: 1024, hop: 256, latencyMs: 21.3, strengths: ["soft", "balanced", "strong", "max"] } });
+  await sleep(20);
+  check("engine ready upgrades the UI to the live state",
+    /pure voice/i.test($("np-mode-chip").textContent) && /AI/.test($("engine-line").textContent),
+    $("np-mode-chip").textContent + " · " + $("engine-line").textContent.slice(0, 60));
 
   console.log("\nVoice-only contract in the UI");
   const body = win.document.body.innerHTML;
@@ -401,24 +408,34 @@ function file(name, size, type) {
   await sleep(80);
   check("clearing the library leaves no errors", errors.length === 0, errors.slice(0, 3).join(" | "));
 
-  console.log("\nFallback engine (WebView without AudioWorklet)");
+  console.log("\nFail-closed engine (WebView without AudioWorklet)");
   const F = boot({ worklet: false });
   const fw = F.win;
   await sleep(700);
   check("boots without AudioWorklet", F.errors.length === 0, F.errors.slice(0, 2).join(" | "));
-  check("no worklet node created in fallback mode", F.MockWorkletNode.instances.length === 0);
+  check("no worklet node created in fail-closed mode", F.MockWorkletNode.instances.length === 0);
   const frow = fw.document.querySelector("#home-list .song-row button.song-main");
-  check("library still filled in fallback mode", !!frow);
+  check("library still filled in fail-closed mode", !!frow);
   if (frow) {
     frow.dispatchEvent(new fw.Event("click", { bubbles: true }));
     await sleep(150);
     const ftitle = (fw.document.getElementById("np-title") || {}).textContent || "";
     const faudio = fw.document.querySelector("audio");
-    check("playback still starts in fallback mode",
+    check("song still loads (silently — never unfiltered) in fail-closed mode",
       /Big Song|Second/.test(ftitle) && !!faudio && /vocalpure\.local\/audio\?path=/.test(faudio.src),
       ftitle + " · " + (faudio ? faudio.src.slice(0, 44) : "no audio element"));
     const fline = (fw.document.getElementById("engine-line") || {}).textContent || "";
-    check("fallback engine announced in the UI", /AudioWorklet|filter/i.test(fline), fline.slice(0, 70));
+    check("engine failure is announced in the UI", /unavailable|AudioWorklet|WebView/i.test(fline), fline.slice(0, 80));
+    const fchip = (fw.document.getElementById("np-mode-chip") || {}).textContent || "";
+    check("now-playing chip shows the failure", /unavailable/i.test(fchip), fchip);
+    const fstatus = (fw.document.getElementById("set-ai-status") || {}).textContent || "";
+    check("settings shows the failure with a retry hint", /Unavailable/.test(fstatus) && /Re-learn/.test(fstatus), fstatus.slice(0, 80));
+    const fretry = fw.document.getElementById("btn-ai-relearn");
+    if (fretry) {
+      fretry.dispatchEvent(new fw.Event("click", { bubbles: true }));
+      await sleep(60);
+      check("retry keeps the app stable (still failed, no crash)", F.errors.length === 0, F.errors.slice(0, 2).join(" | "));
+    }
   }
 
   console.log("\n" + (failures ? failures + " of " + checks + " checks FAILED" : "all " + checks + " checks passed"));

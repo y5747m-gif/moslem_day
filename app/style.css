@@ -49,8 +49,8 @@ input, select { font: inherit; color: inherit; }
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(120% 55% at 50% -12%, rgba(47, 230, 200, 0.09), transparent 62%),
-    radial-gradient(90% 40% at 100% 110%, rgba(58, 166, 255, 0.07), transparent 60%),
+    radial-gradient(120% 55% at 50% -12%, var(--glow-1), transparent 62%),
+    radial-gradient(90% 40% at 100% 110%, var(--glow-2), transparent 60%),
     var(--bg);
 }
 
@@ -674,7 +674,7 @@ input, select { font: inherit; color: inherit; }
 
 .queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; max-height: 260px; overflow-y: auto; scrollbar-width: thin; }
 .queue-row { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; }
-.queue-row.is-current { border-color: rgba(47, 230, 200, 0.55); background: rgba(47, 230, 200, 0.06); }
+.queue-row.is-current { border-color: var(--accent); background: var(--glow-1); }
 .queue-row.is-past { opacity: 0.5; }
 .queue-main {
   width: 100%; display: flex; align-items: center; gap: 0.6rem;
@@ -745,17 +745,21 @@ input, select { font: inherit; color: inherit; }
   position: absolute; inset: 0; z-index: 0;
   overflow: hidden; pointer-events: none;
 }
-.app-orb { position: absolute; border-radius: 50%; filter: blur(70px); will-change: transform; }
+.app-orb { position: absolute; border-radius: 50%; filter: blur(60px); will-change: transform; }
 .app-orb-1 {
-  width: 78%; aspect-ratio: 1; left: -22%; top: -12%;
+  width: 82%; aspect-ratio: 1; left: -24%; top: -14%;
   background: radial-gradient(circle, var(--accent), transparent 65%);
-  opacity: 0.26;
+  opacity: 0.38;
+  animation: orbDrift1 18s ease-in-out infinite alternate;
 }
 .app-orb-2 {
-  width: 72%; aspect-ratio: 1; right: -20%; bottom: -12%;
+  width: 76%; aspect-ratio: 1; right: -22%; bottom: -14%;
   background: radial-gradient(circle, var(--grad-2), transparent 65%);
-  opacity: 0.22;
+  opacity: 0.34;
+  animation: orbDrift2 22s ease-in-out infinite alternate;
 }
+@keyframes orbDrift1 { from { transform: translate(0, 0) scale(1); } to { transform: translate(9%, 12%) scale(1.12); } }
+@keyframes orbDrift2 { from { transform: translate(0, 0) scale(1.08); } to { transform: translate(-10%, -9%) scale(0.96); } }
 #app-wallpaper {
   position: absolute; inset: 0; z-index: 0;
   background-size: cover; background-position: center;
