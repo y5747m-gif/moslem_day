@@ -56,7 +56,9 @@
       soft:     { steep: 0.85, gate: 0.16, floor: 0.10, label: "Soft" },
       balanced: { steep: 1.35, gate: 0.20, floor: 0.055, label: "Balanced" },
       strong:   { steep: 2.00, gate: 0.26, floor: 0.030, label: "Strong" },
-      max:      { steep: 2.90, gate: 0.32, floor: 0.015, label: "Max" }
+      /* Max / 4K precision: a tighter gate and near-zero residual floor
+         prevent quiet instrumental notes from leaking into the vocal. */
+      max:      { steep: 4.20, gate: 0.39, floor: 0.004, label: "Max · 4K Precision" }
     };
 
     var FFT_N = 1024;          /* frame length (≈21 ms @ 48 kHz)              */
