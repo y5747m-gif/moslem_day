@@ -35,6 +35,17 @@ const FakeIndexedDB = loadDep("fake-indexeddb");
 const acorn = loadDep("acorn");
 const walk = loadDep("acorn-walk");
 
+/* fake-indexeddb clones stored values with Node's structuredClone, which
+   flattens jsdom Files/Blobs into plain objects (a real browser round-trips
+   them with bytes and prototypes intact). Pass Blob-like values through by
+   identity — everything else is cloned exactly as before. */
+const realStructuredClone = global.structuredClone;
+global.structuredClone = (v) => {
+  if (v && typeof v === "object" && typeof v.arrayBuffer === "function" &&
+    typeof v.slice === "function" && typeof v.text === "function") return v;
+  return realStructuredClone(v);
+};
+
 let failures = 0, checks = 0;
 function check(name, ok, detail) {
   checks++;
@@ -168,20 +179,47 @@ function boot(opts) {
     createMediaElementSource() { return this._track(mnode()); }
     createBufferSource() { return this._track(mnode({ buffer: null, start() {}, stop() {} })); }
     createChannelMerger() { return this._track(mnode()); }
-    decodeAudioData() {
-      const n = 48000, ch = new Float32Array(n);
-      for (let i = 0; i < n; i++) ch[i] = 0.2 * Math.sin(2 * Math.PI * 220 * i / 48000) + (i % 2 ? 0.05 : -0.05);
-      return Promise.resolve({ sampleRate: 48000, duration: 1, length: n, numberOfChannels: 2, getChannelData: () => ch });
+    decodeAudioData() { return Promise.resolve(mockBuffer(48000, 48000, 2)); }
+  }
+
+  /* OfflineAudioContext mock — the pre-playback render target. It mirrors
+     the real contract the app uses: audioWorklet.addModule, suspend/resume
+     checkpoints and startRendering() → a rendered PCM buffer. */
+  function mockBuffer(frames, sr, channels) {
+    const n = frames, ch = new Float32Array(n);
+    return { sampleRate: sr, duration: n / sr, length: n, numberOfChannels: channels, getChannelData: () => ch };
+  }
+  class MockOfflineCtx {
+    constructor(channels, frames, sampleRate) {
+      this.state = "suspended"; this.sampleRate = sampleRate || 48000; this.currentTime = 0;
+      this.destination = mnode(); this.length = frames || 48000; this._ch = channels || 2;
+      if (opts.worklet !== false) this.audioWorklet = { addModule: () => Promise.resolve() };
     }
+    resume() { return Promise.resolve(); }
+    suspend() { return Promise.resolve(); }
+    createBufferSource() { return mnode({ buffer: null, start() {}, stop() {} }); }
+    decodeAudioData() { return Promise.resolve(mockBuffer(48000, this.sampleRate, 2)); }
+    startRendering() { return Promise.resolve(mockBuffer(Math.min(this.length, 48000), this.sampleRate, this._ch)); }
   }
 
   win.AudioContext = MockCtx;
+  win.OfflineAudioContext = MockOfflineCtx;
   if (opts.worklet !== false) win.AudioWorkletNode = MockWorkletNode;
 
   win.AudioNode = function () {};
   win.URL.createObjectURL = () => "blob:mock/" + Math.random().toString(36).slice(2);
   win.URL.revokeObjectURL = () => {};
-  win.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.11.0", changelog: ["AI voice engine", "large files"] }) });
+  win.fetch = (url) => {
+    /* the Android streaming bridge: pre-processing fetches the whole file */
+    if (/vocalpure\.local\/audio\?path=/.test(String(url))) {
+      return Promise.resolve({
+        ok: true, status: 200,
+        arrayBuffer: () => Promise.resolve(new Uint8Array(2048).buffer),
+        json: () => Promise.resolve({})
+      });
+    }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.11.0", changelog: ["AI voice engine", "large files"] }) });
+  };
   /* a fresh factory per boot so scenarios cannot see each other's songs */
   win.indexedDB = new FakeIndexedDB.IDBFactory();
   win.IDBKeyRange = FakeIndexedDB.IDBKeyRange;
@@ -197,7 +235,15 @@ function boot(opts) {
     },
     configurable: true
   });
-  Object.defineProperty(mediaProto, "duration", { get() { return this._d || 190; }, configurable: true });
+  Object.defineProperty(mediaProto, "duration", {
+    get() {
+      /* the scanned hour-long track keeps its true length through metadata
+         reads too, so it stays over the pre-render cap (live-engine fixture) */
+      if (/a\.mp3/.test(this._src || "")) return 3660;
+      return this._d || 190;
+    },
+    configurable: true
+  });
   Object.defineProperty(mediaProto, "currentTime", { get() { return this._t || 0; }, set(v) { this._t = v; }, configurable: true });
   Object.defineProperty(mediaProto, "readyState", { get() { return 4; }, configurable: true });
   Object.defineProperty(mediaProto, "paused", { get() { return !this._playing; }, configurable: true });
@@ -284,13 +330,16 @@ function file(name, size, type) {
   check("changelog rendered from app-info.json", $("set-changelog").children.length === 2);
   check("restored/added songs appear in the library", /2/.test($("set-song-count").textContent), $("set-song-count").textContent);
 
-  console.log("\nPlayback (streamed, never decoded)");
+  console.log("\nPlayback (pre-processed render · live engine only for huge files)");
   check("device scan listed a row per song", win.document.querySelectorAll("#home-list .song-row").length === 2);
   songRow("home-list", "Big Song").querySelector("button.song-main").dispatchEvent(new win.Event("click", { bubbles: true }));
   await sleep(150);
   check("playing the selected first song", /Big Song/.test($("np-title").textContent), $("np-title").textContent);
-  check("media element streams the device file",
+  /* Big Song is 60 minutes — over the pre-render cap — so it is the ONE case
+     that still plays through the live streaming worklet */
+  check("a too-long file keeps the live streaming path (memory stays bounded)",
     /vocalpure\.local\/audio\?path=/.test(win.document.querySelector("audio").src), win.document.querySelector("audio").src);
+  check("live chip marks the long file as processed live", /live/i.test($("np-mode-chip").textContent), $("np-mode-chip").textContent);
   check("AI worklet node created", MockWorkletNode.instances.length === 1 && MockWorkletNode.instances[0].name === "vp-ai-voice",
     MockWorkletNode.instances.length + " node(s)");
   const firstParams = workletParams.find((m) => m && m.t === "params");
@@ -353,14 +402,41 @@ function file(name, size, type) {
   click("btn-play");
   await sleep(20);
   click("btn-next");
-  await sleep(120);
+  await sleep(150);
   check("next track loads", /Second/.test($("np-title").textContent), $("np-title").textContent);
+  /* Second is 3:20 — under the pre-render cap: it must be purified BEFORE
+     playback, and the element plays the rendered WAV, not the raw file */
+  check("a regular song is pre-processed before playback (element streams the purified blob)",
+    win.document.querySelector("audio").src.startsWith("blob:"), win.document.querySelector("audio").src.slice(0, 32));
+  check("the offline render ran through the AI worklet", MockWorkletNode.instances.length >= 2,
+    MockWorkletNode.instances.length + " node(s)");
+  check("chip marks the song as pre-processed", /pre-processed/i.test($("np-mode-chip").textContent), $("np-mode-chip").textContent);
+  check("engine line states the music was removed before playback", /removed before playback/i.test($("engine-line").textContent),
+    $("engine-line").textContent.slice(0, 70));
   click("btn-prev");
   await sleep(120);
   click("btn-shuffle");
   check("shuffle toggles", $("btn-shuffle").classList.contains("is-active"));
   click("btn-repeat");
   check("repeat toggles", $("btn-repeat").classList.contains("is-active"));
+
+  console.log("\nPinned in-app control bar (mini player)");
+  check("mini player is pinned and visible while a track is loaded", $("miniplayer").hidden === false);
+  check("mini player shows the current track", /Big Song/.test($("mp-title").textContent), $("mp-title").textContent);
+  click("mp-play");
+  await sleep(20);
+  check("mini player play/pause pauses playback", win.document.querySelector("audio").paused === true);
+  click("mp-play");
+  await sleep(20);
+  check("mini player play/pause resumes playback", win.document.querySelector("audio").paused === false);
+  check("mini player progress bar tracks the position", /^-?[\d.]+(px|%)$/.test($("mp-progress-fill").style.width) && $("mp-progress-fill").style.width !== "",
+    $("mp-progress-fill").style.width);
+  click("mp-next");
+  await sleep(150);
+  check("mini player next steps the queue", /Second/.test($("mp-title").textContent), $("mp-title").textContent);
+  click("mp-prev");
+  await sleep(150);
+  check("mini player previous returns", /Big Song/.test($("mp-title").textContent), $("mp-title").textContent);
 
   console.log("\nPinned notification (native media bridge)");
   check("notification received the current track metadata",
@@ -508,18 +584,17 @@ function file(name, size, type) {
   check("the cover was pushed to the pinned notification",
     mediaCalls.meta.some((m) => m.t === "Covered Song" && m.art > 0),
     JSON.stringify(mediaCalls.meta.filter((m) => m.t === "Covered Song")));
+  check("the imported song plays as a pre-processed render too",
+    /removed before playback/i.test($("engine-line").textContent), $("engine-line").textContent.slice(0, 60));
 
-  console.log("\nExport (captured while playing)");
+  console.log("\nExport (instant dump of the purified pre-render)");
   click("exp-voice");
-  await sleep(30);
-  check("export enables engine capture", workletParams.some((m) => m && m.t === "params" && m.capture === true));
-  check("export button switches to stop", /stop/i.test($("exp-voice").textContent), $("exp-voice").textContent);
-  onMessage({ data: { t: "pcm", samples: 96000, data: new Uint8Array(2 * 48000 * 2 * 2).buffer } });
-  await sleep(20);
-  check("PCM chunks written to the file", written.length > 0, written.length + " write(s)");
-  click("exp-voice");
-  await sleep(30);
-  check("export finalises the WAV header", written.some((w) => w.last));
+  await sleep(60);
+  check("purified render written straight from the pre-processed WAV (no re-recording)",
+    written.length > 0, written.length + " write(s)");
+  check("engine capture mode was never needed for the export",
+    !workletParams.some((m) => m && m.t === "params" && m.capture === true));
+  check("file finalized (complete header, last chunk flagged)", written.some((w) => w.last));
 
   console.log("\nLibrary management");
   const del = songRow("home-list").querySelector(".del-btn");
