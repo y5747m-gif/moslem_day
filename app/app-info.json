@@ -1,13 +1,14 @@
 {
   "version": "2.8.0",
-  "updated": "Sep 19, 2026",
+  "updated": "Sep 20, 2026",
   "minAndroid": "8.0+",
   "tagline": "Standalone player that analyzes every song and removes the music automatically",
   "changelog": [
-    "Auto purify: every song is analyzed the moment you import it (real FFT, on device) and its music is removed automatically on playback — pure vocals with zero taps",
-    "Background batch analysis: the whole import is analyzed per song before the first note plays; “✓ auto” marks analyzed tracks",
-    "Clarity ring + live strategy card on the Now Playing screen",
-    "New professional identity: deep-ink UI with teal signal accents, gold details and a redesigned launcher icon",
-    "Still fully standalone: library, search, playlists, favorites, queue, 5-band EQ, sleep timer, WAV export — completely separate from the download website"
+    "Full phone music permissions: complete runtime & manifest permissions (READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE) to access all music files on your phone",
+    "Audio engine fix: restored audio routing in vocal isolation and auto-purify modes — all tracks now play loudly and clearly",
+    "Phone music scanner: automatically scan MediaStore and storage folders to import all music on the device",
+    "Background playback: uninterrupted music playback when the screen is locked or the app is minimized",
+    "Auto purify: every song is analyzed the moment you import it and its music is removed automatically on playback",
+    "Offline & private: 100% on-device processing; songs never leave your phone"
   ]
 }

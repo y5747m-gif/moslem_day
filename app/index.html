@@ -21,6 +21,9 @@
         <span id="topbar-title">Home</span>
       </div>
       <div class="topbar-actions">
+        <button type="button" class="tb-icon" id="btn-top-scan" aria-label="Scan phone for music" title="Scan phone for music">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </button>
         <button type="button" class="tb-icon" id="btn-import" aria-label="Add songs" title="Add songs">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
@@ -32,6 +35,13 @@
 
       <!-- Home -->
       <section id="screen-home" class="screen" role="region" aria-label="Home">
+        <div id="perm-banner" class="perm-banner" hidden>
+          <div class="perm-banner-text">
+            <strong>Music Permission Required:</strong> Allow access to scan &amp; play music from your phone.
+          </div>
+          <button type="button" id="btn-banner-grant">Allow Access</button>
+        </div>
+
         <div class="home-hero" id="home-hero">
           <div class="home-hero-copy">
             <p class="home-kicker">VocalPure · Auto Engine</p>
@@ -42,10 +52,16 @@
               Auto analyze · auto music removal
             </p>
           </div>
-          <button type="button" class="hero-btn" id="btn-hero-import">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            Add songs
-          </button>
+          <div class="hero-actions">
+            <button type="button" class="hero-btn" id="btn-hero-import">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              Add songs
+            </button>
+            <button type="button" class="hero-btn hero-btn-secondary" id="btn-hero-scan">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              Scan phone music
+            </button>
+          </div>
         </div>
 
         <div class="section-head">
@@ -63,12 +79,18 @@
             <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15" r="2.5"/></svg>
           </div>
           <h2>Your library is empty</h2>
-          <p>Add songs from your phone — they are analyzed automatically and stay on this device, always private.</p>
-          <button type="button" class="primary-btn" id="btn-empty-import">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            Browse my songs
-          </button>
-          <p class="empty-note">MP3 · WAV · M4A · OGG · FLAC · multiple files at once</p>
+          <p>Scan all music from your phone or browse audio files — music is removed automatically and stays private on this device.</p>
+          <div class="empty-actions">
+            <button type="button" class="primary-btn secondary" id="btn-empty-scan">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+              Scan phone music
+            </button>
+            <button type="button" class="primary-btn" id="btn-empty-import">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              Browse files
+            </button>
+          </div>
+          <p class="empty-note">MP3 · WAV · M4A · OGG · FLAC · AAC · loads from phone storage</p>
         </div>
       </section>
 
@@ -173,6 +195,21 @@
             uploaded. With Auto purify on, playback starts with the music track already
             removed, so <b>only the pure voice plays</b>. You can still switch to Original,
             Karaoke or My mix at any time; the automation applies again on the next song.
+          </p>
+        </div>
+
+        <div class="set-group" id="set-group-permissions">
+          <h3>Phone Music & Permissions</h3>
+          <div class="set-row">
+            <span class="set-label">Storage & Music Access<small class="set-sub">Required to access all music tracks on your device</small></span>
+            <b class="set-val" id="perm-status-badge">Checking…</b>
+          </div>
+          <div class="set-row" style="gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="ghost-btn sm" id="btn-grant-permission">Grant Permissions</button>
+            <button type="button" class="ghost-btn sm" id="btn-settings-scan">Scan All Phone Music</button>
+          </div>
+          <p class="set-note">
+            Grants access to your device's music library (Android 13+ audio permission &amp; storage). VocalPure reads audio locally on your device to play and isolate vocals; your audio never leaves your phone.
           </p>
         </div>
 

@@ -153,9 +153,10 @@
   function cleanRec(s) {
     return {
       id: s.id, title: s.title, artist: s.artist, name: s.name,
-      duration: s.duration || 0, blob: s.blob, favorite: !!s.favorite,
+      duration: s.duration || 0, blob: s.blob || null, favorite: !!s.favorite,
       dateAdded: s.dateAdded || Date.now(), profile: s._profile || null,
-      size: s.blob && s.blob.size ? s.blob.size : 0
+      size: s.size || (s.blob && s.blob.size ? s.blob.size : 0),
+      path: s.path || null
     };
   }
 
@@ -603,6 +604,9 @@
 
   function startAt(offset) {
     if (!buffer || !actx) return;
+    if (actx.state === "suspended") {
+      actx.resume().catch(function () { /* ignore */ });
+    }
     stopSource();
     offset = Math.max(0, Math.min(offset, Math.max(duration - 0.05, 0)));
     source = actx.createBufferSource();
@@ -615,10 +619,13 @@
       source.connect(eqIn);
     } else {
       /* Both stems are always built; effStem() zeroes the unused one so a
-         single-stem mode (vocals / karaoke) is exact and switching is free. */
+         single-stem mode (vocals / karaoke) is exact and switching is free.
+         Crucial: connect both stem outputs into mix bus! */
       graphV = actx.createGain();
       graphI = actx.createGain();
       buildStems(actx, source, profile, graphV, graphI);
+      graphV.connect(mix);
+      graphI.connect(mix);
       applyStemGains();
     }
     source.onended = function () {
@@ -736,6 +743,10 @@
 
   function decodeArrayBuffer(ab) {
     return new Promise(function (resolve, reject) {
+      if (!ensureCtx()) {
+        reject(new Error("AudioContext not supported"));
+        return;
+      }
       var done = false;
       function ok(b) { if (!done) { done = true; resolve(b); } }
       function fail(e) { if (!done) { done = true; reject(e || new Error("decode")); } }
@@ -751,23 +762,84 @@
     song._buffer = b;
   }
 
+  function loadFromDevicePath(song, resolve, reject) {
+    var url = "https://vocalpure.local/audio?path=" + encodeURIComponent(song.path);
+    fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error("fetch: " + res.status);
+        return res.arrayBuffer();
+      })
+      .then(function (ab) {
+        return decodeArrayBuffer(ab);
+      })
+      .then(function (b) {
+        cacheBuffer(song, b);
+        resolve(b);
+      })
+      .catch(function (fetchErr) {
+        // Fallback: try native bridge readAudioBase64
+        if (window.VocalPureAndroid && window.VocalPureAndroid.readAudioBase64) {
+          try {
+            var b64Data = window.VocalPureAndroid.readAudioBase64(song.path);
+            if (b64Data && b64Data.length > 0) {
+              var binary = atob(b64Data);
+              var len = binary.length;
+              var bytes = new Uint8Array(len);
+              for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+              decodeArrayBuffer(bytes.buffer).then(function (b) {
+                cacheBuffer(song, b);
+                resolve(b);
+              }, reject);
+              return;
+            }
+          } catch (bridgeErr) { /* ignore */ }
+        }
+        reject(fetchErr || new Error("Failed to load device audio"));
+      });
+  }
+
   function getBuffer(song) {
     return new Promise(function (resolve, reject) {
       if (song._buffer) { resolve(song._buffer); return; }
-      var blob = song.blob;
-      if (!blob) { reject(new Error("no data")); return; }
-      function onAb(ab) {
-        decodeArrayBuffer(ab).then(function (b) { cacheBuffer(song, b); resolve(b); }, reject);
-      }
-      try {
-        if (blob.arrayBuffer) blob.arrayBuffer().then(onAb, reject);
-        else {
-          var r = new FileReader();
-          r.onload = function () { onAb(r.result); };
-          r.onerror = function () { reject(new Error("read")); };
-          r.readAsArrayBuffer(blob);
+      if (!ensureCtx()) { reject(new Error("AudioContext unavailable")); return; }
+
+      // 1. If song has a blob (uploaded or imported via file picker)
+      if (song.blob) {
+        var blob = song.blob;
+        function onAb(ab) {
+          decodeArrayBuffer(ab).then(function (b) { cacheBuffer(song, b); resolve(b); }, reject);
         }
-      } catch (e) { reject(e); }
+        try {
+          if (blob.arrayBuffer) {
+            blob.arrayBuffer().then(onAb).catch(function () {
+              if (song.path) loadFromDevicePath(song, resolve, reject);
+              else reject(new Error("read"));
+            });
+            return;
+          } else {
+            var r = new FileReader();
+            r.onload = function () { onAb(r.result); };
+            r.onerror = function () {
+              if (song.path) loadFromDevicePath(song, resolve, reject);
+              else reject(new Error("read"));
+            };
+            r.readAsArrayBuffer(blob);
+            return;
+          }
+        } catch (e) {
+          if (song.path) loadFromDevicePath(song, resolve, reject);
+          else reject(e);
+          return;
+        }
+      }
+
+      // 2. If song is a device file with path
+      if (song.path) {
+        loadFromDevicePath(song, resolve, reject);
+        return;
+      }
+
+      reject(new Error("no data"));
     });
   }
 
@@ -1587,13 +1659,23 @@
      ============================================================ */
   var MAX_FILE = 80 * 1024 * 1024;
   function looksAudio(f) {
-    return (f.type && f.type.indexOf("audio") === 0) ||
-      /\.(mp3|wav|m4a|aac|ogg|opus|flac|wma|oga|weba|webm)$/i.test(f.name || "");
+    if (!f) return false;
+    if (f.type && f.type.indexOf("audio") === 0) return true;
+    if (/\.(mp3|wav|m4a|aac|ogg|opus|flac|wma|oga|weba|webm)$/i.test(f.name || "")) return true;
+    if (!f.type || f.type === "application/octet-stream" || f.type === "application/x-zip-compressed") return true;
+    return false;
   }
   function readAndDecode(f) {
     return new Promise(function (res, rej) {
       var r = new FileReader();
-      r.onload = function () { decodeArrayBuffer(r.result).then(res, rej); };
+      r.onload = function () {
+        var ab = r.result;
+        var realBlob = new Blob([ab], { type: f.type || "audio/mpeg" });
+        var abCopy = ab.slice(0);
+        decodeArrayBuffer(abCopy).then(function (buf) {
+          res({ buffer: buf, blob: realBlob });
+        }).catch(rej);
+      };
       r.onerror = function () { rej(new Error("read")); };
       try { r.readAsArrayBuffer(f); } catch (e) { rej(e); }
     });
@@ -1618,12 +1700,14 @@
       var f = list[idx++];
       if (!looksAudio(f)) { bad++; next(); return; }
       if (f.size > MAX_FILE) { big++; next(); return; }
-      readAndDecode(f).then(function (buf) {
+      readAndDecode(f).then(function (res) {
+        var buf = res.buffer;
+        var realBlob = res.blob;
         var meta = parseName(f.name);
         var rec = {
           id: uid(), title: meta.title, artist: meta.artist, name: f.name,
-          duration: buf ? buf.duration : 0, blob: f, favorite: false, dateAdded: Date.now(),
-          _buffer: buf || null, _profile: null
+          duration: buf ? buf.duration : 0, blob: realBlob, favorite: false, dateAdded: Date.now(),
+          _buffer: buf || null, _profile: null, path: null, size: f.size || (realBlob ? realBlob.size : 0)
         };
         library.push(rec);
         idbPut(cleanRec(rec));
@@ -1658,11 +1742,146 @@
   }
 
   /* ============================================================
+     Device Music & Permissions
+     ============================================================ */
+  function updatePermissionUI() {
+    var badge = $("perm-status-badge");
+    var btnGrant = $("btn-grant-permission");
+    var banner = $("perm-banner");
+    var hasNative = !!(window.VocalPureAndroid && window.VocalPureAndroid.hasStoragePermission);
+    if (!hasNative) {
+      if (badge) { badge.textContent = "Web Browser"; badge.style.color = "var(--text-sub)"; }
+      if (btnGrant) btnGrant.hidden = true;
+      if (banner) banner.hidden = true;
+      return;
+    }
+    var granted = false;
+    try { granted = window.VocalPureAndroid.hasStoragePermission(); } catch (e) { granted = false; }
+    if (badge) {
+      badge.textContent = granted ? "Granted ✓" : "Permission Needed";
+      badge.style.color = granted ? "var(--teal)" : "#f87171";
+    }
+    if (btnGrant) {
+      btnGrant.textContent = granted ? "Permissions OK ✓" : "Grant Permissions";
+      btnGrant.disabled = granted;
+    }
+    if (banner) {
+      banner.hidden = granted;
+    }
+  }
+
+  function requestDevicePermissions() {
+    if (window.VocalPureAndroid && window.VocalPureAndroid.requestStoragePermission) {
+      window.VocalPureAndroid.requestStoragePermission();
+    } else {
+      toast("Select audio files using the file picker.", "info");
+      $("file-input").click();
+    }
+  }
+
+  function scanDeviceMusic() {
+    if (!window.VocalPureAndroid || !window.VocalPureAndroid.scanDeviceAudio) {
+      toast("Device scanning is available in the Android app.", "info");
+      $("file-input").click();
+      return;
+    }
+
+    var granted = false;
+    try { granted = window.VocalPureAndroid.hasStoragePermission(); } catch (e) { granted = false; }
+    if (!granted) {
+      toast("Requesting music permissions…");
+      window.VocalPureAndroid.requestStoragePermission();
+      return;
+    }
+
+    toast("Scanning phone for music files…");
+    setTimeout(function () {
+      try {
+        var jsonStr = window.VocalPureAndroid.scanDeviceAudio();
+        var files = JSON.parse(jsonStr || "[]");
+        if (!files || !files.length) {
+          toast("No music files found in phone storage.", "info");
+          return;
+        }
+
+        var existingPaths = {}, existingNames = {};
+        for (var i = 0; i < library.length; i++) {
+          if (library[i].path) existingPaths[library[i].path] = true;
+          existingNames[(library[i].artist + " - " + library[i].title).toLowerCase()] = true;
+        }
+
+        var addedCount = 0;
+        var newIds = [];
+        for (var j = 0; j < files.length; j++) {
+          var item = files[j];
+          if (item.path && existingPaths[item.path]) continue;
+          var key = ((item.artist || "") + " - " + (item.title || "")).toLowerCase();
+          if (existingNames[key]) continue;
+
+          var rec = {
+            id: uid(),
+            title: item.title || item.name || "Unknown Track",
+            artist: item.artist || "Device audio",
+            name: item.name || item.title || "audio",
+            duration: item.duration || 0,
+            blob: null,
+            path: item.path,
+            size: item.size || 0,
+            favorite: false,
+            dateAdded: Date.now(),
+            _buffer: null,
+            _profile: null
+          };
+          library.push(rec);
+          idbPut(cleanRec(rec));
+          newIds.push(rec.id);
+          existingPaths[item.path] = true;
+          existingNames[key] = true;
+          addedCount++;
+        }
+
+        renderHome();
+        renderSearch();
+        renderPlaylists();
+        updateCounts();
+
+        if (addedCount > 0) {
+          toast("Found & added " + addedCount + " music track" + (addedCount === 1 ? "" : "s") + " from your phone!", "success");
+          if (newIds.length) autoAnalyze(newIds);
+          if (!currentId && newIds.length > 0) {
+            playFromList(newIds, 0);
+          }
+        } else {
+          toast("All " + files.length + " phone music tracks are already in your library.", "info");
+        }
+      } catch (err) {
+        toast("Scan error: " + (err && err.message ? err.message : "could not read files"), "error");
+      }
+    }, 50);
+  }
+
+  window.onDevicePermissionResult = function (granted) {
+    updatePermissionUI();
+    if (granted) {
+      toast("Permission granted! Scanning phone for music…", "success");
+      scanDeviceMusic();
+    } else {
+      toast("Storage permission is required to access your music.", "error");
+    }
+  };
+
+  /* ============================================================
      Events
      ============================================================ */
   on($("btn-import"), "click", function () { $("file-input").click(); });
   on($("btn-hero-import"), "click", function () { $("file-input").click(); });
+  on($("btn-hero-scan"), "click", scanDeviceMusic);
+  on($("btn-top-scan"), "click", scanDeviceMusic);
   on($("btn-empty-import"), "click", function () { $("file-input").click(); });
+  on($("btn-empty-scan"), "click", scanDeviceMusic);
+  on($("btn-banner-grant"), "click", requestDevicePermissions);
+  on($("btn-grant-permission"), "click", requestDevicePermissions);
+  on($("btn-settings-scan"), "click", scanDeviceMusic);
   on($("file-input"), "change", function () {
     var fi = $("file-input");
     if (fi.files && fi.files.length) loadFiles(fi.files);
@@ -1950,9 +2169,15 @@
   });
 
   window.addEventListener("resize", function () { sizeViz(); });
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden && playing) pausePlayback();
-  });
+
+  /* audio context unlock on first touch/click */
+  function unlockAudio() {
+    if (actx && actx.state === "suspended") {
+      actx.resume().catch(function () {});
+    }
+  }
+  document.addEventListener("click", unlockAudio, true);
+  document.addEventListener("touchstart", unlockAudio, true);
 
   /* ============================================================
      Init
@@ -2045,14 +2270,33 @@
           id: r.id, title: r.title || "Unknown", artist: r.artist || "Unknown artist",
           name: r.name || r.title || "Unknown", duration: r.duration || 0,
           blob: r.blob || null, favorite: !!r.favorite, dateAdded: r.dateAdded || 0,
-          _buffer: null, _profile: r.profile || null
+          _buffer: null, _profile: r.profile || null,
+          path: r.path || null, size: r.size || 0
         };
       }).filter(function (r) { return r.id; });
       renderHome(); renderSearch(); renderPlaylists(); updateCounts();
+      updatePermissionUI();
       if (library.length) {
         toast("Restored " + library.length + " song" + (library.length === 1 ? "" : "s") + " from your library.", "success");
       }
     }).catch(function () { idbFailed = true; });
+
+    updatePermissionUI();
+    if (window.VocalPureAndroid && window.VocalPureAndroid.hasStoragePermission) {
+      var granted = false;
+      try { granted = window.VocalPureAndroid.hasStoragePermission(); } catch (e) {}
+      if (granted) {
+        setTimeout(function () {
+          if (!library.length) scanDeviceMusic();
+        }, 350);
+      } else {
+        setTimeout(function () {
+          if (window.VocalPureAndroid.requestStoragePermission) {
+            window.VocalPureAndroid.requestStoragePermission();
+          }
+        }, 800);
+      }
+    }
 
     (function idle() {
       if (!playing) drawIdleViz(performance.now());

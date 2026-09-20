@@ -101,7 +101,7 @@
     betaVersion: "v2.8.0-beta.1",
     size: "—",
     betaSize: "—",
-    updated: "Sep 19, 2026",
+    updated: "Sep 20, 2026",
     minAndroid: "8.0+",
     sha256: "…",
     stableFile: "downloads/VocalPure-v2.8.0.apk",
