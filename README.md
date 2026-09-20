@@ -23,6 +23,29 @@ The project has two completely separate parts:
   the AI. No mode selector, no stem mixer, no music fader and no karaoke
   export exist anywhere in the app; the listener hears the isolated voice,
   never the instruments.
+- **100% Isolation by default** — the **Max** preset is the default and now
+  runs the *pure* (hard) mask: every bin the engine classifies as music is
+  driven to full silence (zero floor, hard 115 Hz–9 kHz vocal band,
+  logit gate), and a sustained-instrument suppressor fades out drones and
+  unchanging tones within ~2 s. Voice only, zero music residue.
+- **Cover art from the file itself** — embedded artwork is extracted
+  straight from the audio bytes (ID3v2.2/.3/.4 APIC for MP3, FLAC PICTURE
+  block, M4A/MP4 `covr` atom — moov at the front *or* the end — and OGG
+  `METADATA_BLOCK_PICTURE`), downscaled to 512 px and shown in the library
+  rows and the Now Playing screen; files without art get the built-in
+  VocalPure artwork.
+- **Pinned playback notification** — while a song plays, a persistent
+  foreground notification (MediaSession + MediaStyle) shows the cover
+  thumbnail, track title/artist, play/pause, next/previous and a one-tap
+  **output switch**; it keeps working with the app in the background.
+- **Stable audio on every output** — the stutter/cut-outs on external
+  speakers are fixed at the root: a real `AudioFocusRequest` with a live
+  focus listener (pause on loss, resume on gain), explicit routing between
+  loudspeaker / earpiece / Bluetooth A2DP / wired (the same selector the
+  notification uses, with automatic fallback), A2DP + headset-plug +
+  noisy-cable broadcast tracking, a partial wake lock during playback and
+  config-change immunity so Bluetooth state changes never tear the app
+  down mid-song.
 - **Streamed playback (no more crashes on big files)** — songs are piped
   into the engine through a media element (`blob:` for imported files, the
   Android streaming bridge with real HTTP **range** support for phone-library
@@ -34,12 +57,14 @@ The project has two completely separate parts:
   dB of music were cut, the pitch the engine locked onto, its state and its
   processing latency, updating live while the song plays.
 - **Library** — import multiple songs at once (file picker, drag & drop),
-  auto-parsed “Artist – Title” names, generated covers, duration, sort by
+  auto-parsed “Artist – Title” names, **embedded cover art** extracted from
+  the file (or the built-in artwork when none), duration, sort by
   title/artist/date, remove. Library (audio included) stored in IndexedDB,
   restored on launch, fully offline.
-- **Now-playing screen** — live frequency visualizer, seek bar, prev /
-  play / next, shuffle, repeat (off / all / one), playback speed 0.5×–2×,
-  volume + mute, sleep timer (15/30/60 min).
+- **Now-playing screen** — the song's **embedded cover art** (or the
+  built-in artwork), live frequency visualizer, seek bar, prev / play /
+  next, shuffle, repeat (off / all / one), playback speed 0.5×–2×, volume
+  + mute, sleep timer (15/30/60 min).
 - **Search** — instant title/artist filter with match count.
 - **Playlists & favorites** — create/rename/delete playlists, star
   favorites; all persisted on-device. **Queue** — live “Up next” list.
@@ -96,6 +121,7 @@ The project has two completely separate parts:
 │   ├── style.css           # its own UI theme (warm amber/coral)
 │   ├── app.js              # player: streaming transport, library, AI panel
 │   ├── vp-ai-engine.js     # the AI voice engine (AudioWorklet, engine v6)
+│   ├── vp-cover.js         # embedded cover-art extractor (ID3v2/FLAC/MP4/OGG)
 │   └── app-info.json       # in-APK version/changelog fallback
 ├── android/                # APK build pipeline (no Android SDK needed)
 │   ├── build_apk.py        # aapt2 → javac/dx → zip → v1+v2+v3 signing
@@ -106,12 +132,14 @@ The project has two completely separate parts:
 ├── tools/                  # verification harnesses (not shipped)
 │   ├── verify_app.js       # static checks: syntax, DOM contract, metadata
 │   ├── test_ai_engine.js   # DSP harness: runs the real worklet in Node
+│   ├── test_cover.js       # cover-art extractor: synthetic ID3v2/FLAC/MP4/OGG
 │   ├── smoke_app.js        # jsdom functional test + undeclared-symbol scan
 │   └── smoke_site.js       # jsdom test of the download page + metadata
 └── downloads/
-    ├── VocalPure-v2.11.0.apk        # signed stable app (Android 8.0+) — AI voice engine
-    ├── VocalPure-v2.9.0.apk         # previous stable (kept for reference)
-    ├── VocalPure-v2.8.0.apk         # older stable (kept for reference)
+    ├── VocalPure-v2.12.0.apk        # signed stable app (Android 8.0+) — AI voice engine,
+    │                                #   cover art, pinned notification, stable output routing
+    ├── VocalPure-v2.11.0.apk        # previous stable (kept for reference)
+    ├── VocalPure-v2.9.0.apk         # older stable (kept for reference)
     └── VocalPure-v2.7.0.apk         # legacy stable (kept for reference)
 ```
 
@@ -131,9 +159,9 @@ The app can also be opened directly in a desktop browser for testing:
 ```bash
 export VP_TOOLS=$HOME/.vp-tools VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ./android/sync_assets.sh
-python3 android/build_apk.py --version-name 2.11.0 --version-code 2110 \
-    --out downloads/VocalPure-v2.11.0.apk
-python3 android/verify_apk.py downloads/VocalPure-v2.11.0.apk
+python3 android/build_apk.py --version-name 2.12.0 --version-code 2120 \
+    --out downloads/VocalPure-v2.12.0.apk
+python3 android/verify_apk.py downloads/VocalPure-v2.12.0.apk
 ```
 
 One-time toolchain setup (`pip install jdk4py`, then
@@ -178,10 +206,12 @@ computes, per frequency bin, a soft mask from several independent cues:
 - a **VAD** (periodicity + spatial + band focus) that drives a gate so
   music-only sections fall to silence instead of leaking.
 
-The cues are combined in a logit, squashed by a per-preset steepness, gated,
-smoothed (3-tap + AR) and floored by the strength preset
-(Soft/Balanced/Strong/Max → floor 0.10/0.055/0.030/0.015). The mask is
-applied to both channels, the frame is re-packed, inverse-transformed and
+The cues are combined in a logit, squashed by a per-preset steepness, gated
+and smoothed (3-tap + AR). Soft/Balanced/Strong apply a residual floor
+(0.10/0.055/0.030) and time smoothing; **Max** disables both and runs the
+*pure* path — a hard 115 Hz–9 kHz vocal band, a 0.35 logit gate and a zero
+floor — so classified music goes to full silence. The mask is applied to
+both channels, the frame is re-packed, inverse-transformed and
 overlap-added; added latency is one FFT frame (≈21 ms at 48 kHz).
 
 Live metrics (voice ratio, music-cut dB, F0, clarity, latency) are posted to
@@ -189,9 +219,12 @@ the app ~4×/second — that is what the AI panel displays, and the app turns
 the metrics into a per-song profile after ~4 s of playback (stored in
 IndexedDB, shown as “✓ AI” in the list).
 
-**Fallback**: WebViews without `AudioWorklet` get a real-time filter chain
-(mono fold + 145 Hz high-pass + presence shaping) — still voice-only, just
-without the adaptive spectral model.
+**Fail-closed**: WebViews without `AudioWorklet` get *no* playback path —
+the media source is connected only to the AI node, so a missing engine
+keeps the song silent and the UI says exactly why, with a one-tap retry in
+Settings (“Re-learn song”). There is deliberately no filter-chain fallback:
+playing the music nearly unfiltered while claiming it was removed is worse
+than saying plainly that the engine could not start.
 
 > Note: this is an adaptive spectral-masking separator with online learning,
 > not a deep-learning stem model (no weights are downloaded; the APK stays
@@ -202,6 +235,7 @@ without the adaptive spectral model.
 ```bash
 node tools/verify_app.js      # static: syntax, DOM contract, assets, metadata
 node tools/test_ai_engine.js  # runs the real worklet source in Node (16 checks)
+node tools/test_cover.js      # cover-art extractor on synthetic ID3v2/FLAC/MP4/OGG files
 node tools/smoke_app.js       # jsdom functional test + undeclared-symbol scan
 node tools/smoke_site.js      # jsdom test of the download page
 # first time only: npm --prefix tools install
@@ -217,13 +251,22 @@ node tools/smoke_site.js      # jsdom test of the download page
   removed (−30.5 dB music-only, −21 dB bass, −13 dB hats, silence-only
   intro), voice kept (−2.9 dB), voice/music SNR improved by +6.4 dB, mono
   handling, >8× realtime, and 16-bit PCM capture streaming.
+- **`test_cover.js`** — builds tiny synthetic audio files that carry real
+  embedded artwork (ID3v2.2/.3/.4 APIC in all four text encodings, FLAC
+  PICTURE, M4A `covr` with the moov atom at the front *and* at the end, OGG
+  `METADATA_BLOCK_PICTURE`) and asserts the production extractor
+  (`app/vp-cover.js`) returns the exact same image bytes — plus
+  corrupt-tag, truncated-input and base64 round-trip checks.
 - **`smoke_app.js`** — boots the real app inside jsdom with mocked Web Audio,
   IndexedDB and the Android bridge, then drives it: device scan, streamed
   playback (`blob:` and `vocalpure.local/audio?path=` sources), worklet
   creation + params, live meters, strength/boost/denoise controls, transport,
-  search, playlists, EQ, themes, import, oversized-file rejection, capture
-  export and library clearing — plus a scope analysis that fails on any
-  symbol used but never declared.
+  the pinned-notification bridge (meta/play-state/focus/wake-lock), audio
+  output routing (settings change, Bluetooth disconnect fallback, native
+  output cycling), embedded-cover extraction from a real ID3v2 MP3 into the
+  rows, Now Playing and the notification, search, playlists, EQ, themes,
+  import, oversized-file rejection, capture export and library clearing —
+  plus a scope analysis that fails on any symbol used but never declared.
 - **`smoke_site.js`** — the download page fills in live metadata from
   `app-info.json` (version, size, SHA-256, date, changelog), both download
   buttons point at the APK that is actually in `downloads/`, the QR code is
