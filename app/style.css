@@ -83,6 +83,17 @@ input, select { font: inherit; color: inherit; }
 .tb-icon.danger { color: var(--danger); }
 .tb-icon.is-fav { color: var(--accent-2); border-color: rgba(242,193,78,0.5); background: rgba(242,193,78,0.12); }
 
+/* ---------- Pinned notice ---------- */
+.app-notice {
+  flex: none; z-index: 19; display: flex; align-items: center; gap: .5rem;
+  min-height: 34px; padding: .42rem .85rem; direction: rtl;
+  background: linear-gradient(90deg, rgba(47,230,200,.14), rgba(58,166,255,.12));
+  border-bottom: 1px solid rgba(47,230,200,.28); color: var(--text);
+  font-size: .74rem; line-height: 1.25; text-align: right;
+}
+.app-notice b { color: var(--accent); }
+.app-notice-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); box-shadow: 0 0 9px var(--accent); }
+
 /* ---------- Screens ---------- */
 #screens { flex: 1; overflow: hidden; position: relative; z-index: 1; }
 .screen {
@@ -546,7 +557,10 @@ input, select { font: inherit; color: inherit; }
 
 #np-viz { width: 100%; height: 64px; display: block; margin-bottom: 0.6rem; }
 
-.np-progress { padding: 0.35rem 0; cursor: pointer; touch-action: none; }
+.np-progress { padding: 0.55rem 0; cursor: grab; touch-action: none; user-select: none; }
+.np-progress.is-dragging { cursor: grabbing; }
+.np-progress.is-dragging .np-progress-track { height: 10px; }
+.np-progress-track { transition: height .12s ease; }
 .np-progress-track { height: 6px; border-radius: 999px; background: rgba(255,255,255,0.12); overflow: hidden; }
 .np-progress-fill {
   height: 100%; width: 0; border-radius: 999px;
@@ -594,6 +608,9 @@ input, select { font: inherit; color: inherit; }
 .np-count { opacity: 0.75; font-size: 0.78em; }
 .np-panel { display: flex; flex-direction: column; gap: 0.7rem; }
 .np-panel[hidden] { display: none; }
+
+.quality-note { margin: .45rem 0 .7rem; padding: .55rem .7rem; border-radius: 10px; background: rgba(47,230,200,.08); border: 1px solid rgba(47,230,200,.18); color: var(--muted); font-size: .74rem; }
+.quality-note b { color: var(--accent); }
 
 .pure-banner {
   margin: 0; padding: 0.6rem 0.7rem; border-radius: 12px;

@@ -2442,10 +2442,31 @@
   /* seek */
   var prog = $("np-progress");
   if (prog) {
-    prog.addEventListener("click", function (e) {
+    var dragging = false;
+    function seekFromPointer(e) {
       var rect = prog.getBoundingClientRect();
       if (rect.width <= 0) return;
-      seekTo((e.clientX - rect.left) / rect.width);
+      var x = e.clientX;
+      if (e.touches && e.touches[0]) x = e.touches[0].clientX;
+      seekTo(Math.max(0, Math.min(1, (x - rect.left) / rect.width)));
+    }
+    /* Pointer events cover mouse, touch and stylus. Capture keeps seeking
+       responsive even when the finger leaves the narrow progress bar. */
+    prog.addEventListener("pointerdown", function (e) {
+      if (!loaded || duration <= 0) return;
+      dragging = true; prog.classList.add("is-dragging");
+      try { prog.setPointerCapture(e.pointerId); } catch (ignore) {}
+      seekFromPointer(e); e.preventDefault();
+    });
+    prog.addEventListener("pointermove", function (e) {
+      if (dragging) { seekFromPointer(e); e.preventDefault(); }
+    });
+    prog.addEventListener("pointerup", function (e) {
+      dragging = false; prog.classList.remove("is-dragging");
+      try { prog.releasePointerCapture(e.pointerId); } catch (ignore) {}
+    });
+    prog.addEventListener("click", function (e) {
+      if (!dragging) seekFromPointer(e);
     });
     prog.addEventListener("keydown", function (e) {
       if (!loaded || duration <= 0) return;
