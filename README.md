@@ -109,9 +109,10 @@ The project has two completely separate parts:
 │   ├── smoke_app.js        # jsdom functional test + undeclared-symbol scan
 │   └── smoke_site.js       # jsdom test of the download page + metadata
 └── downloads/
-    ├── VocalPure-v2.9.0.apk        # signed stable app (Android 8.0+) — AI voice engine
-    ├── VocalPure-v2.8.0.apk        # previous stable (kept for reference)
-    └── VocalPure-v2.7.0.apk        # older stable (kept for reference)
+    ├── VocalPure-v2.10.0.apk        # signed stable app (Android 8.0+) — AI voice engine
+    ├── VocalPure-v2.9.0.apk         # previous stable (kept for reference)
+    ├── VocalPure-v2.8.0.apk         # older stable (kept for reference)
+    └── VocalPure-v2.7.0.apk         # legacy stable (kept for reference)
 ```
 
 ## Run the website locally
@@ -130,9 +131,9 @@ The app can also be opened directly in a desktop browser for testing:
 ```bash
 export VP_TOOLS=$HOME/.vp-tools VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ./android/sync_assets.sh
-python3 android/build_apk.py --version-name 2.9.0 --version-code 290 \
-    --out downloads/VocalPure-v2.9.0.apk
-python3 android/verify_apk.py downloads/VocalPure-v2.9.0.apk
+python3 android/build_apk.py --version-name 2.10.0 --version-code 2100 \
+    --out downloads/VocalPure-v2.10.0.apk
+python3 android/verify_apk.py downloads/VocalPure-v2.10.0.apk
 ```
 
 One-time toolchain setup (`pip install jdk4py`, then
