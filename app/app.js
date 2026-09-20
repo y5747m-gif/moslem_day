@@ -1,26 +1,23 @@
 /* ============================================================
-   VocalPure app — standalone music player engine
-   Library · playlists · favorites · queue · EQ · sleep timer
-   + adaptive two-track vocal isolation (engine v5)
+   VocalPure app — standalone music player engine  (engine v6)
 
-   Engine v5 (what changed vs v4):
-     · AUTO PURIFY — every song is analyzed automatically the
-       moment it is imported (batch FFT, in the background) and
-       its music (instruments) is removed automatically on
-       playback: pure vocals with zero taps. A settings switch
-       turns the automation off; manual modes always win per track.
-     · clarity ring + live strategy card on the Now Playing screen
+   The app has exactly one way to play a song: the AI voice engine
+   isolates the voice and the music is removed. There is no mode
+   selector, no stem mixer and no "music" level anywhere — the
+   listener always hears the voice, never the music.
 
-   Engine v4 (kept as the analysis core):
-     · every song is pre-analyzed with a real FFT: center-vs-side
-       energy in the vocal band decides the strategy per track
-     · stereo "center": 3-band mid extraction (body/core/air) +
-       presence peak, side+returned-bass music stem
-     · stereo "blend": wide mixes get a center+vocal-reverb
-       blend instead of a hollow pure-mid
-     · mono: sharper notch on the music stem, stronger vocal
-       presence peak
-     · per-stem compressor with makeup gain (no clipping, ever)
+   Engine v6 changes (vs the v5 four-mode engine):
+     · real-time AI separation in an AudioWorklet — streaming STFT
+       soft-masking driven by an online-learned voice/music profile,
+       centre-channel coherence, pitch/harmonic tracking and a
+       syllabic-modulation cue (see app/vp-ai-engine.js)
+     · playback is STREAMED through a media element: songs are never
+       decoded into an AudioBuffer any more, so large files no longer
+       exhaust memory (this was the crash the old engine hit)
+     · audio bytes live in their own IndexedDB store and are read one
+       song at a time; only metadata is loaded on launch
+     · the WAV export records the purified voice as it plays instead of
+       rendering a two-hour AudioBuffer in memory
    ============================================================ */
 (function () {
   "use strict";
@@ -74,52 +71,99 @@
     return mb >= 100 ? Math.round(mb) + " MB" : mb.toFixed(1) + " MB";
   }
 
-  /* ---------------- persistent settings ---------------- */
-  var SETTINGS_KEY = "vp-app-settings-v2";
+/* ============================================================
+   Persistent settings
+   NOTE: there is no mode / stem / "music level" setting any more.
+   The app always plays the isolated voice; the only knobs are how
+   hard the AI engine pushes the music down and how loud the voice
+   comes out.
+   ============================================================ */
+  var SETTINGS_KEY = "vp-app-settings-v3";
+  var LEGACY_SETTINGS_KEY = "vp-app-settings-v2";
   var settings = {
-    volume: 80, rate: 1, mode: "original", autoPurify: true,
-    stemV: 100, stemI: 100, customV: 70, customI: 70,
+    volume: 80, rate: 1,
+    aiStrength: "balanced", aiBoost: 6, aiDenoise: true,
     eqOn: true, eq: [0, 0, 0, 0, 0], eqPreset: "normal",
     shuffle: false, repeat: "off"
   };
+  var AI_STRENGTHS = ["soft", "balanced", "strong", "max"];
   function loadSettings() {
     try {
       var raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return;
-      var s = JSON.parse(raw) || {};
-      for (var k in settings) {
-        if (s[k] === undefined || s[k] === null) continue;
-        if (k === "eq" && Array.isArray(s[k]) && s[k].length === 5) {
-          settings.eq = s[k].map(function (v) { return Math.max(-12, Math.min(12, Number(v) || 0)); });
-        } else settings[k] = s[k];
+      if (!raw) {
+        /* one-time carry-over of the sound preferences from v2 libraries */
+        raw = localStorage.getItem(LEGACY_SETTINGS_KEY);
+        if (raw) {
+          var old = JSON.parse(raw) || {};
+          ["volume", "rate", "eqOn", "eq", "eqPreset", "shuffle", "repeat"].forEach(function (k) {
+            if (old[k] !== undefined && old[k] !== null) settings[k] = old[k];
+          });
+        }
+      } else {
+        var s = JSON.parse(raw) || {};
+        for (var k2 in settings) {
+          if (s[k2] === undefined || s[k2] === null) continue;
+          if (k2 === "eq" && Array.isArray(s[k2]) && s[k2].length === 5) {
+            settings.eq = s[k2].map(function (v) { return Math.max(-12, Math.min(12, Number(v) || 0)); });
+          } else settings[k2] = s[k2];
+        }
       }
-      if (["original", "vocals", "karaoke", "custom"].indexOf(settings.mode) < 0) settings.mode = "original";
-      if (["off", "all", "one"].indexOf(settings.repeat) < 0) settings.repeat = "off";
     } catch (e) { /* defaults */ }
+    if (AI_STRENGTHS.indexOf(settings.aiStrength) < 0) settings.aiStrength = "balanced";
+    settings.aiBoost = Math.max(0, Math.min(18, Number(settings.aiBoost) || 0));
+    settings.aiDenoise = settings.aiDenoise !== false;
+    if (["off", "all", "one"].indexOf(settings.repeat) < 0) settings.repeat = "off";
   }
   function saveSettings() {
     try {
-      settings.volume = volume; settings.rate = playbackRate; settings.mode = mode;
-      settings.stemV = stemV; settings.stemI = stemI;
-      settings.customV = customMem.v; settings.customI = customMem.i;
+      settings.volume = volume; settings.rate = playbackRate;
+      settings.aiStrength = aiStrength;
+      settings.aiBoost = aiBoostDb;
+      settings.aiDenoise = aiDenoise;
       settings.eqOn = eqOn; settings.eq = eqGains.slice(); settings.eqPreset = eqPresetName;
       settings.shuffle = shuffle; settings.repeat = repeatMode;
-      settings.autoPurify = autoPurify;
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) { /* ignore */ }
   }
 
-  /* ---------------- IndexedDB song storage ---------------- */
-  var IDB_NAME = "vp-app-db", IDB_STORE = "songs";
+/* ============================================================
+   Local storage — metadata and audio bytes live in TWO stores:
+     songs  : light metadata only (title, artist, duration, path…)
+     files  : id → Blob, read on demand, one song at a time
+   Splitting them is what keeps a library of large files from
+   blowing up memory on launch: the app never reads all audio
+   into memory, and never decodes a whole song to play it.
+   ============================================================ */
+  var IDB_NAME = "vp-app-db", IDB_STORE = "songs", IDB_FILES = "files";
   var idbDb = null, idbFailed = false;
   function idbOpen() {
     return new Promise(function (res, rej) {
       if (idbDb) { res(idbDb); return; }
       if (!window.indexedDB) { rej(new Error("no indexedDB")); return; }
-      var req = window.indexedDB.open(IDB_NAME, 1);
+      var req = window.indexedDB.open(IDB_NAME, 2);
       req.onupgradeneeded = function () {
-        var db = req.result;
+        var db = req.result, tx = req.transaction;
         if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(IDB_FILES)) db.createObjectStore(IDB_FILES);
+        /* v1 kept the audio blob inside the metadata record — move it out */
+        if (tx && db.objectStoreNames.contains(IDB_STORE)) {
+          var meta = tx.objectStore(IDB_STORE), files = tx.objectStore(IDB_FILES);
+          var cur = meta.openCursor();
+          cur.onsuccess = function () {
+            var c = cur.result;
+            if (!c) return;
+            var v = c.value;
+            if (v && v.blob) {
+              files.put(v.blob, v.id);
+              var slim = {};
+              for (var k in v) slim[k] = v[k];
+              delete slim.blob;
+              slim.streamed = true;
+              c.update(slim);
+            }
+            c.continue();
+          };
+        }
       };
       req.onsuccess = function () { idbDb = req.result; res(idbDb); };
       req.onerror = function () { rej(req.error || new Error("idb")); };
@@ -143,23 +187,45 @@
       tx.objectStore(IDB_STORE).put(rec);
     }).catch(function () { idbFailed = true; });
   }
+  function idbPutFile(id, blob) {
+    if (idbFailed || !window.indexedDB || !blob) return Promise.resolve(false);
+    return idbOpen().then(function (db) {
+      return new Promise(function (res) {
+        var tx = db.transaction(IDB_FILES, "readwrite");
+        tx.objectStore(IDB_FILES).put(blob, id);
+        tx.oncomplete = function () { res(true); };
+        tx.onerror = function () { res(false); };
+      });
+    }).catch(function () { return false; });
+  }
+  function idbGetFile(id) {
+    if (idbFailed || !window.indexedDB) return Promise.resolve(null);
+    return idbOpen().then(function (db) {
+      return new Promise(function (res) {
+        var tx = db.transaction(IDB_FILES, "readonly");
+        var rq = tx.objectStore(IDB_FILES).get(id);
+        rq.onsuccess = function () { res(rq.result || null); };
+        rq.onerror = function () { res(null); };
+      });
+    }).catch(function () { return null; });
+  }
   function idbDel(id) {
     if (idbFailed || !window.indexedDB) return;
     idbOpen().then(function (db) {
-      var tx = db.transaction(IDB_STORE, "readwrite");
+      var tx = db.transaction([IDB_STORE, IDB_FILES], "readwrite");
       tx.objectStore(IDB_STORE).delete(id);
+      tx.objectStore(IDB_FILES).delete(id);
     }).catch(function () { /* ignore */ });
   }
   function cleanRec(s) {
     return {
       id: s.id, title: s.title, artist: s.artist, name: s.name,
-      duration: s.duration || 0, blob: s.blob || null, favorite: !!s.favorite,
+      duration: s.duration || 0, favorite: !!s.favorite,
       dateAdded: s.dateAdded || Date.now(), profile: s._profile || null,
-      size: s.size || (s.blob && s.blob.size ? s.blob.size : 0),
-      path: s.path || null
+      size: s.size || 0, path: s.path || null,
+      streamed: !!s.streamed
     };
   }
-
   /* ---------------- playlists ---------------- */
   var PLAYLISTS_KEY = "vp-app-playlists-v2";
   var playlists = [];
@@ -210,9 +276,23 @@
     });
   }
 
-  /* ============================================================
-     FFT + per-song analysis (strategy picker)
+/* ============================================================
+     On-device AI analysis (bounded, streaming-safe)
+
+     The app never decodes a whole song: playback is streamed
+     through the AI engine (app/vp-ai-engine.js), and the "is this
+     voice or music?" decision is learned continuously while the
+     song plays — nothing about it depends on file size.
+
+     On top of that, a *bounded* probe gives an instant estimate
+     when a song is imported: only the first ~420 KB of the file
+     are fetched (a byte range for device files, a blob slice for
+     imported files) and decoded, which is a few seconds of audio
+     at most. Everything is discarded right after measuring.
      ============================================================ */
+  var PROBE_BYTES = 420 * 1024;        /* max bytes read for the instant probe */
+  var PROBE_MAX_PCM = 44100 * 2 * 40;  /* ≤ ~40 s of decoded audio (≈14 MB)    */
+
   function fft(re, im) {
     var n = re.length, i, j, bit, len, ang, wr, wi, k, u, ui, v, vi, cwr, cwi, nwr;
     for (i = 1, j = 0; i < n; i++) {
@@ -244,33 +324,28 @@
   }
 
   /**
-   * Measures where a track's vocal-band energy lives.
-   * Returns { stereo, centerRatio, bandFocus, strategy, clarity }
+   * Measures a *short* decoded buffer (a probe slice, never a whole song):
+   * how much of the voice band sits in the centre channel, how much of the
+   * total energy is voice-band energy, and how much low / high content the
+   * track has. Returns null when there is not enough audio to judge.
    */
-  function analyzeBuffer(buf) {
-    var sr = buf.sampleRate;
-    var nch = buf.numberOfChannels;
+  function analyzeSlice(buf) {
+    if (!buf || !buf.length || buf.duration < 0.4) return null;
+    var sr = buf.sampleRate, nch = buf.numberOfChannels;
     var L = buf.getChannelData(0);
     var R = nch >= 2 ? buf.getChannelData(1) : null;
     var stereo = nch >= 2;
-
-    var N = 1024;
-    var hop = 512;
-    var maxFrames = Math.max(8, Math.floor((Math.min(buf.duration, 6) * sr) / hop));
-    var start = Math.min(L.length - N, Math.floor(Math.random() * Math.max(1, L.length - N - 10000)));
-    if (start < 0) start = 0;
-
+    var N = 1024, hop = 512;
+    var maxFrames = Math.max(8, Math.min(600, Math.floor(L.length / hop) - 2));
     var reL = new Float64Array(N), imL = new Float64Array(N);
     var reR = new Float64Array(N), imR = new Float64Array(N);
-    var vocalMid = 0, vocalSide = 0, lowMid = 0, lowSide = 0, highMid = 0, highSide = 0;
-    var bandPow = 0, totalPow = 0;
+    var vocalMid = 0, vocalSide = 0, lowMid = 0, highMid = 0, bandPow = 0, totalPow = 0;
+    var frames = 0, peak = 0, sumSq = 0, samples = 0;
 
-    function addFrame(off) {
-      var i;
-      for (i = 0; i < N; i++) {
+    for (var off = 0; off + N < L.length && frames < maxFrames; off += hop) {
+      for (var i = 0; i < N; i++) {
         reL[i] = L[off + i] || 0; imL[i] = 0;
-        if (stereo) { reR[i] = R[off + i] || 0; imR[i] = 0; }
-        else { reR[i] = reL[i]; imR[i] = 0; }
+        reR[i] = (stereo ? R[off + i] : reL[i]) || 0; imR[i] = 0;
       }
       fft(reL, imL);
       if (stereo) fft(reR, imR);
@@ -278,99 +353,161 @@
         var f = b * sr / N;
         var midR = (reL[b] + reR[b]) * 0.5, midI = (imL[b] + imR[b]) * 0.5;
         var mp = midR * midR + midI * midI;
-        var sp2, sI;
+        var sp = 0;
         if (stereo) {
-          sp2 = (reL[b] - reR[b]) * 0.5; sI = (imL[b] - imR[b]) * 0.5;
-        } else { sp2 = 0; sI = 0; }
-        var spow = sp2 * sp2 + sI * sI;
-        if (f >= 30 && f < 150) { lowMid += mp; lowSide += spow; }
-        else if (f >= 150 && f < 4300) { vocalMid += mp; vocalSide += spow; bandPow += mp + spow; }
-        else if (f >= 4300 && f < 12000) { highMid += mp; highSide += spow; }
-        totalPow += mp + spow;
+          var sR = (reL[b] - reR[b]) * 0.5, sI = (imL[b] - imR[b]) * 0.5;
+          sp = sR * sR + sI * sI;
+        }
+        if (f >= 30 && f < 150) lowMid += mp;
+        else if (f >= 150 && f < 4300) { vocalMid += mp; vocalSide += sp; bandPow += mp + sp; }
+        else if (f >= 4300 && f < 12000) highMid += mp;
+        totalPow += mp + sp;
       }
-    }
-
-    var frames = 0;
-    for (var off = start; off + N < L.length && frames < maxFrames; off += hop) {
-      addFrame(off);
+      for (i = off; i < off + N; i += 8) {
+        var s = L[i] || 0;
+        sumSq += s * s; samples++;
+        var av = s < 0 ? -s : s;
+        if (av > peak) peak = av;
+      }
       frames++;
     }
-    if (!frames) { return { stereo: stereo, centerRatio: 0, bandFocus: 0, strategy: stereo ? "center" : "mono", clarity: 50 }; }
-
+    if (!frames) return null;
     var centerRatio = (vocalMid + vocalSide) > 0 ? vocalMid / (vocalMid + vocalSide) : 0;
     var bandFocus = totalPow > 0 ? bandPow / totalPow : 0;
+    var lowRatio = totalPow > 0 ? lowMid / totalPow : 0;
+    var highRatio = totalPow > 0 ? highMid / totalPow : 0;
+    var rms = samples ? Math.sqrt(sumSq / samples) : 0;
+    var clarity = 30 + centerRatio * 42 + Math.min(22, bandFocus * 55);
+    if (!stereo) clarity = 26 + Math.min(30, bandFocus * 60);
+    clarity = Math.max(15, Math.min(98, Math.round(clarity)));
+    return {
+      ai: true, probe: true, engine: "vp-ai-v6",
+      stereo: stereo, frames: frames,
+      centerRatio: Math.round(centerRatio * 1000) / 1000,
+      bandFocus: Math.round(bandFocus * 1000) / 1000,
+      lowRatio: Math.round(lowRatio * 1000) / 1000,
+      highRatio: Math.round(highRatio * 1000) / 1000,
+      rms: Math.round(rms * 1000) / 1000,
+      peak: Math.round(peak * 1000) / 1000,
+      clarity: clarity,
+      at: Date.now()
+    };
+  }
 
-    var strategy, clarity;
-    if (!stereo) {
-      strategy = "mono";
-      clarity = Math.round(35 + 35 * Math.min(1, Math.max(0, (bandFocus - 0.12) / 0.3)));
-    } else if (centerRatio >= 0.62) {
-      strategy = "center";
-      clarity = Math.round(58 + 42 * Math.min(1, Math.max(0, (centerRatio - 0.62) / 0.35)));
-    } else if (centerRatio >= 0.4) {
-      strategy = "blend";
-      clarity = Math.round(42 + 38 * Math.min(1, Math.max(0, (centerRatio - 0.4) / 0.22)));
-    } else {
-      strategy = "band";
-      clarity = Math.round(30 + 28 * Math.min(1, Math.max(0, (centerRatio - 0.15) / 0.25)));
+  /* An almost-empty take (silence / intros) must not overwrite good data. */
+  function usableProfile(p) {
+    return !!p && (p.live ? true : (p.rms > 0.004 && p.frames >= 8));
+  }
+
+  function decodeSliceBytes(ab) {
+    return new Promise(function (resolve) {
+      if (!ensureCtx()) { resolve(null); return; }
+      var done = false;
+      function ok(b) { if (!done) { done = true; resolve(b && b.length <= PROBE_MAX_PCM ? b : (b || null)); } }
+      function fail() { if (!done) { done = true; resolve(null); } }
+      try {
+        var pr = actx.decodeAudioData(ab, ok, fail);
+        if (pr && typeof pr.then === "function") pr.then(ok, fail);
+      } catch (e) { fail(); }
+    });
+  }
+
+  /**
+   * Bounded probe for one song. Reads at most PROBE_BYTES from the start of
+   * the audio (Range request for device files, blob slice for imported ones),
+   * decodes it and measures it. Never throws, never keeps the bytes.
+   */
+  function probeSong(song) {
+    if (!song) return Promise.resolve(null);
+    var bytes = null;
+    if (song.blob) {
+      bytes = song.blob.slice(0, Math.min(song.blob.size || PROBE_BYTES, PROBE_BYTES)).arrayBuffer();
+    } else if (song.path) {
+      var url = deviceAudioUrl(song.path);
+      if (window.fetch) {
+        bytes = fetch(url, { headers: { Range: "bytes=0-" + (PROBE_BYTES - 1) }, cache: "no-store" })
+          .then(function (res) { return res.ok || res.status === 206 ? res.arrayBuffer() : null; })
+          .catch(function () { return null; });
+      }
     }
-    return {
-      stereo: stereo,
-      centerRatio: centerRatio,
-      bandFocus: bandFocus,
-      lowMid: lowMid, lowSide: lowSide,
-      vocalMid: vocalMid, vocalSide: vocalSide,
-      highMid: highMid, highSide: highSide,
-      strategy: strategy,
-      clarity: clarity
-    };
+    if (!bytes) return Promise.resolve(null);
+    var promise = (bytes && typeof bytes.then === "function") ? bytes : Promise.resolve(bytes);
+    return promise.then(function (ab) {
+      if (!ab) return null;
+      return decodeSliceBytes(ab).then(function (buf) {
+        var p = analyzeSlice(buf);
+        return usableProfile(p) ? p : null;
+      });
+    }).catch(function () { return null; });
   }
 
-  var STRATEGY_LABELS = {
-    center: "center extraction",
-    blend: "center blend",
-    band: "frequency focus",
-    mono: "mono frequency focus"
-  };
-
-  /* Profile used while the FFT analysis of a new song is still running. */
-  function effectiveProfile(song, buf) {
-    if (song && song._profile) return song._profile;
-    var stereo = !!(buf && buf.numberOfChannels >= 2);
-    return {
-      stereo: stereo,
-      strategy: stereo ? "center" : "mono",
-      centerRatio: 0.7, bandFocus: 0.3, clarity: 70
-    };
+  /* Songs waiting for their instant probe (one at a time, background) */
+  var probeQueue = [], probing = false;
+  function queueAnalysis(ids) {
+    if (!ids || !ids.length) return;
+    for (var i = 0; i < ids.length; i++) {
+      var s = songById(ids[i]);
+      if (s && !s._profile && probeQueue.indexOf(s.id) < 0) probeQueue.push(s.id);
+    }
+    if (probing) return;
+    probing = true;
+    var total = probeQueue.length;
+    if (total > 1) toast("AI is analyzing " + total + " songs…");
+    (function step() {
+      var id = probeQueue.shift();
+      if (!id) {
+        probing = false;
+        renderHome(); renderSearch();
+        if (openPlaylistId) renderPlaylistSongs();
+        updateEngineLine();
+        if (total > 1) toast("AI analysis finished — every song is ready.", "success");
+        return;
+      }
+      var s = songById(id);
+      if (!s) { setTimeout(step, 20); return; }
+      probeSong(s).then(function (p) {
+        if (p) {
+          s._profile = p;
+          idbPut(cleanRec(s));
+          renderHome(); renderSearch();
+          if (openPlaylistId) renderPlaylistSongs();
+          updateEngineLine();
+        }
+        setTimeout(step, 30);
+      }).catch(function () { setTimeout(step, 30); });
+    })();
   }
+/* ============================================================
+     Audio engine — streaming only
 
-  /* ============================================================
-     Audio engine
-     Chain: source -> (stems -> mix -> comp) | (original: eqIn)
-            -> 5-band EQ -> master -> analyser -> destination
+       <audio> element  →  MediaElementSource
+                        →  AI voice engine (AudioWorklet, always on)
+                        →  voice boost → compressor → 5-band EQ
+                        →  master → analyser → output
+
+     Nothing else is ever played: the music stem does not exist in
+     this app. Because the element streams the file and the worklet
+     works on 1024-sample frames, a 300 MB song costs the same
+     memory as a 3 MB one — the old "decode the whole file into an
+     AudioBuffer" path is gone, which is what used to crash the app
+     on large files.
      ============================================================ */
   var AC = window.AudioContext || window.webkitAudioContext;
-  var actx = null, master = null, analyser = null, comp = null, mix = null, eqIn = null;
-  var eqBands = [];
-  var buffer = null, source = null, graphV = null, graphI = null;
-  var mode = "original";
-  /* Auto Purify — every song is analyzed automatically and its music
-     (instruments) is removed automatically: playback starts on the
-     vocals-only stem. The listener can still switch modes any time. */
-  var autoPurify = true;
-  var playing = false;
-  var startCtxTime = 0, offsetBase = 0, duration = 0;
-  var playbackRate = 1, volume = 80, muted = false;
-  var stemV = 100, stemI = 100;
-  var muteV = false, muteI = false, soloV = false, soloI = false;
-  var customMem = { v: 70, i: 70 };
-  var freqData = null;
-  var exporting = false;
+  var actx = null, master = null, analyser = null, comp = null, eqIn = null, voiceGain = null;
+  var eqBands = [], freqData = null;
+  var audioEl = null, mediaSrc = null, aiNode = null, filterOut = null;
+  var engineKind = "none";            /* "ai" | "filters" | "none" */
+  var engineInfo = null, engineStats = null;
+  var mediaUrl = null, mediaCors = false;
+  var loaded = false, playing = false;
+  var duration = 0, playbackRate = 1, volume = 80, muted = false;
+  var aiStrength = "balanced", aiBoostDb = 6, aiDenoise = true;
+  var exportState = null;             /* set by the WAV export section */
 
   var ICON_PLAY = "M7.5 4.8v14.4L20 12z";
   var ICON_PAUSE = "M6.5 4h3.6v16H6.5zM13.9 4h3.6v16h-3.6z";
 
-  /* ---- shared node builders (realtime + offline export) ---- */
+  /* ---- shared node builders (fallback chain) ---- */
   function cGain(C, v) { var g = C.createGain(); g.gain.value = v; return g; }
   function cFilter(C, type, freq, q) {
     var f = C.createBiquadFilter();
@@ -384,133 +521,114 @@
     c.attack.value = 0.005; c.release.value = 0.16;
     return c;
   }
-  /* stereo helpers: mono mid = (L+R)/2, mono side = (L-R)/2 */
-  function monoMid(C, src) {
-    var sp = C.createChannelSplitter(2), gL = cGain(C, 0.5), gR = cGain(C, 0.5);
-    var m = C.createChannelMerger(2);
-    src.connect(sp);
-    sp.connect(gL, 0); sp.connect(gR, 1);
-    gL.connect(m, 0, 0); gR.connect(m, 0, 0);
-    return m;
-  }
-  function monoSide(C, src) {
-    var sp = C.createChannelSplitter(2), a = cGain(C, 0.5), b = cGain(C, -0.5);
-    var m = C.createChannelMerger(2);
-    src.connect(sp);
-    sp.connect(a, 0); sp.connect(b, 1);
-    a.connect(m, 0, 0); b.connect(m, 0, 0);
-    return m;
+  function dbToGain(db) { return Math.pow(10, (Number(db) || 0) / 20); }
+
+  /* ============================================================
+     Media element (streamed source)
+     ============================================================ */
+  function deviceAudioUrl(path) {
+    return "https://vocalpure.local/audio?path=" + encodeURIComponent(path);
   }
 
-  /**
-   * Builds BOTH stems from `src` into `outV` / `outI` for the given
-   * analysis profile. Returns { vocal, music } terminal nodes.
-   */
-  function buildStems(C, src, profile, outV, outI) {
-    var stereo = profile && profile.stereo;
-    var strat = (profile && profile.strategy) || (stereo ? "center" : "mono");
-    var vEnd, iEnd;
+  function ensureAudioEl() {
+    if (audioEl) return audioEl;
+    audioEl = document.createElement("audio");
+    audioEl.setAttribute("playsinline", "");
+    audioEl.preload = "auto";
+    try { audioEl.setAttribute("aria-hidden", "true"); } catch (e) { /* ignore */ }
+    audioEl.style.display = "none";
+    document.body.appendChild(audioEl);
+    audioEl.addEventListener("play", function () { playing = true; setPlayIcon(true); startVizLoop(); });
+    audioEl.addEventListener("pause", function () { playing = false; setPlayIcon(false); updateProgressUI(); });
+    audioEl.addEventListener("ended", function () { playing = false; setPlayIcon(false); onTrackEnded(); });
+    audioEl.addEventListener("ratechange", function () { saveSettings(); });
+    audioEl.addEventListener("timeupdate", function () { if (!vizRaf) updateProgressUI(); });
+    audioEl.addEventListener("error", function () {
+      if (!loaded) return;
+      toast("This track could not be streamed — try another file.", "error");
+    });
+    try { mediaSrc = actx.createMediaElementSource(audioEl); } catch (e) { mediaSrc = null; }
+    if (mediaSrc) mediaSrc.connect(voiceGain);      /* direct until the AI node is ready */
+    return audioEl;
+  }
 
-    if (stereo) {
-      var mid = monoMid(C, src);
-      var side = monoSide(C, src);
-
-      /* ---- vocal stem ---- */
-      if (strat === "center" || strat === "blend") {
-        var centerSum = cGain(C, 1);
-        var body = cFilter(C, "highpass", 85), bodyLp = cFilter(C, "lowpass", 300), bodyG = cGain(C, 0.4);
-        var core = cFilter(C, "highpass", 280), coreLp = cFilter(C, "lowpass", 5200), coreG = cGain(C, 1.0);
-        var air = cFilter(C, "highpass", 5200), airLp = cFilter(C, "lowpass", 12500), airG = cGain(C, 0.7);
-        mid.connect(body); body.connect(bodyLp); bodyLp.connect(bodyG); bodyG.connect(centerSum);
-        mid.connect(core); core.connect(coreLp); coreLp.connect(coreG); coreG.connect(centerSum);
-        mid.connect(air); air.connect(airLp); airLp.connect(airG); airG.connect(centerSum);
-        var vocalIn;
-        if (strat === "blend") {
-          /* wide reverb tails live in the side signal — bring some back,
-             duck the center part so the mix stays voice-forward */
-          var sumV = cGain(C, 1);
-          var duck = cGain(C, 0.75);
-          var tail = cFilter(C, "lowpass", 8000), tailG = cGain(C, 0.3);
-          centerSum.connect(duck); duck.connect(sumV);
-          side.connect(tail); tail.connect(tailG); tailG.connect(sumV);
-          vocalIn = sumV;
-        } else {
-          vocalIn = centerSum;
-        }
-        var presence = cFilter(C, "peaking", 2700, 1.1); presence.gain.value = 2.5;
-        vocalIn.connect(presence);
-        vEnd = cComp(C);
-        presence.connect(vEnd);
-        var vMake = cGain(C, 1.15);
-        vEnd.connect(vMake); vMake.connect(outV);
-      } else {
-        /* band / weak-center: treat as focused mono */
-        var vHp = cFilter(C, "highpass", 140);
-        var vPk = cFilter(C, "peaking", 2000, 0.9); vPk.gain.value = 2;
-        var vLp = cFilter(C, "lowpass", 5200);
-        mid.connect(vHp); vHp.connect(vPk); vPk.connect(vLp);
-        vEnd = cComp(C);
-        vLp.connect(vEnd);
-        var vMake2 = cGain(C, 1.25);
-        vEnd.connect(vMake2); vMake2.connect(outV);
-      }
-
-      /* ---- music stem ---- */
-      var sumI = cGain(C, 1);
-      var sideOut = cFilter(C, "highpass", 150), sideG = cGain(C, 1.3);
-      side.connect(sideOut); sideOut.connect(sideG);
-      var bass = cFilter(C, "lowpass", 150), bassG = cGain(C, 0.95);
-      mid.connect(bass); bass.connect(bassG);
-      var mBody = cFilter(C, "highpass", 150), mBodyLp = cFilter(C, "lowpass", 420), mBodyG = cGain(C, 0.35);
-      mid.connect(mBody); mBody.connect(mBodyLp); mBodyLp.connect(mBodyG);
-      if (strat === "blend") {
-        /* keep a bit of the full mid so wide mixes don't go empty;
-           duck the vocal band out of it */
-        var mDuck = cFilter(C, "peaking", 2400, 0.8); mDuck.gain.value = -5;
-        var mRet = cGain(C, 0.15);
-        mid.connect(mDuck); mDuck.connect(mRet);
-        sideG.connect(sumI); bassG.connect(sumI); mBodyG.connect(sumI); mRet.connect(sumI);
-      } else {
-        sideG.connect(sumI); bassG.connect(sumI); mBodyG.connect(sumI);
-      }
-      iEnd = cComp(C);
-      sumI.connect(iEnd);
-      var iMake = cGain(C, 1.0);
-      iEnd.connect(iMake); iMake.connect(outI);
-    } else {
-      /* ---- mono track: no side signal exists ---- */
-      var mHp = cFilter(C, "highpass", 140);
-      var mPk = cFilter(C, "peaking", 1900, 0.9); mPk.gain.value = 3.5;
-      var mLp = cFilter(C, "lowpass", 5200);
-      src.connect(mHp); mHp.connect(mPk); mPk.connect(mLp);
-      vEnd = cComp(C);
-      mLp.connect(vEnd);
-      var vMake = cGain(C, 1.35);
-      vEnd.connect(vMake); vMake.connect(outV);
-
-      var iLo = cFilter(C, "lowpass", 140), iLoG = cGain(C, 1.15);
-      var iHi = cFilter(C, "highpass", 5200), iHiG = cGain(C, 1.15);
-      var iSum = cGain(C, 1);
-      var iPk2 = cFilter(C, "peaking", 2500, 0.7); iPk2.gain.value = -4;
-      src.connect(iLo); iLo.connect(iLoG); iLoG.connect(iSum);
-      src.connect(iHi); iHi.connect(iHiG); iHiG.connect(iSum);
-      iSum.connect(iPk2);
-      iEnd = cComp(C);
-      iPk2.connect(iEnd);
-      var iMake = cGain(C, 1.1);
-      iEnd.connect(iMake); iMake.connect(outI);
+  function setMediaUrl(url, cors) {
+    if (mediaUrl && mediaUrl !== url) {
+      try { URL.revokeObjectURL(mediaUrl); } catch (e) { /* ignore */ }
+      mediaUrl = null;
     }
-    return { vocal: vEnd, music: iEnd, strategy: strat };
+    mediaCors = !!cors;
+    try {
+      if (cors) audioEl.crossOrigin = "anonymous";
+      else { audioEl.removeAttribute("crossorigin"); audioEl.crossOrigin = null; }
+    } catch (e) { /* ignore */ }
+    if (url && url.indexOf("blob:") === 0) mediaUrl = url;
+    audioEl.src = url;
+    try { audioEl.load(); } catch (e) { /* ignore */ }
   }
 
+  function sourceForSong(song) {
+    if (song.path) return Promise.resolve({ url: deviceAudioUrl(song.path), cors: true });
+    if (song.blob) return Promise.resolve({ url: URL.createObjectURL(song.blob), cors: false });
+    return idbGetFile(song.id).then(function (b) {
+      if (!b) return null;
+      song.blob = b;
+      return { url: URL.createObjectURL(b), cors: false };
+    });
+  }
+
+  /* Keep exactly one song's bytes referenced in JS memory. */
+  function dropOtherBlobs(keepId) {
+    for (var i = 0; i < library.length; i++) {
+      if (library[i].id !== keepId) library[i].blob = null;
+    }
+  }
+
+  function prepareMedia(song) {
+    return new Promise(function (resolve, reject) {
+      if (!audioEl) { reject(new Error("audio output unavailable")); return; }
+      sourceForSong(song).then(function (spec) {
+        if (!spec || !spec.url) { reject(new Error("the audio data is missing")); return; }
+        dropOtherBlobs(song.id);
+        var settled = false;
+        function cleanup() {
+          audioEl.removeEventListener("loadedmetadata", onMeta);
+          audioEl.removeEventListener("error", onErr);
+        }
+        function onMeta() {
+          if (settled) return;
+          settled = true; cleanup();
+          resolve({ duration: isFinite(audioEl.duration) ? audioEl.duration : 0 });
+        }
+        function onErr() {
+          if (settled) return;
+          settled = true; cleanup();
+          reject(new Error("the stream could not be opened"));
+        }
+        audioEl.addEventListener("loadedmetadata", onMeta);
+        audioEl.addEventListener("error", onErr);
+        setMediaUrl(spec.url, spec.cors);
+        /* some containers report metadata late — never hang the UI on it */
+        setTimeout(function () {
+          if (settled) return;
+          settled = true; cleanup();
+          resolve({ duration: isFinite(audioEl.duration) ? audioEl.duration : 0 });
+        }, 9000);
+      }).catch(reject);
+    });
+  }
+
+  /* ============================================================
+     The AI voice engine (with a filter fallback)
+     ============================================================ */
   function ensureCtx() {
     if (!AC) return false;
     if (!actx) {
       try { actx = new AC(); } catch (e) { return false; }
-      mix = actx.createGain();
       comp = actx.createDynamicsCompressor();
-      comp.threshold.value = -8; comp.knee.value = 12; comp.ratio.value = 6;
-      comp.attack.value = 0.004; comp.release.value = 0.18;
+      comp.threshold.value = -10; comp.knee.value = 12; comp.ratio.value = 5;
+      comp.attack.value = 0.004; comp.release.value = 0.2;
+      voiceGain = cGain(actx, dbToGain(aiBoostDb));
       eqIn = actx.createGain();
       var types = ["lowshelf", "peaking", "peaking", "peaking", "highshelf"];
       var freqs = [60, 230, 910, 3600, 14000];
@@ -527,46 +645,248 @@
       analyser = actx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.82;
-      mix.connect(comp); comp.connect(eqIn);
+      voiceGain.connect(comp);
+      comp.connect(eqIn);
       prev.connect(master);
       master.connect(analyser);
       analyser.connect(actx.destination);
       freqData = new Uint8Array(analyser.frequencyBinCount);
       applyEQ();
       applyVolume();
+      applyVoiceBoost();
+      ensureAudioEl();
+      startEngine();
     }
     if (actx.state === "suspended") actx.resume().catch(function () { /* ignore */ });
     return true;
   }
 
-  function effStem(which) {
-    var soloAny = soloV || soloI;
-    if (which === "v") {
-      if (muteV) return 0;
-      if (soloAny && !soloV) return 0;
-      if (mode === "karaoke") return 0;
-      if (mode === "vocals") return 1;
-      if (mode === "original") return 1;
-      return stemV / 100;
+  /**
+   * Boots the AI separation worklet. The module is built at runtime from the
+   * factory in app/vp-ai-engine.js and loaded through a blob: URL, so it works
+   * from file:// inside the Android WebView without a second fetch.
+   */
+  function startEngine() {
+    if (engineKind !== "none" || !actx || !mediaSrc) return;
+    var api = window.VPAIEngine;
+    if (actx.audioWorklet && api && typeof api.factory === "function" && window.Blob && window.URL && window.AudioWorkletNode) {
+      try {
+        var source = "(" + api.factory.toString() + ")();";
+        var modUrl = URL.createObjectURL(new Blob([source], { type: "application/javascript" }));
+        actx.audioWorklet.addModule(modUrl).then(function () {
+          try { URL.revokeObjectURL(modUrl); } catch (e) { /* ignore */ }
+          aiNode = new AudioWorkletNode(actx, "vp-ai-voice", {
+            numberOfInputs: 1, numberOfOutputs: 1,
+            outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit"
+          });
+          aiNode.port.onmessage = onEngineMessage;
+          try { mediaSrc.disconnect(voiceGain); } catch (e) { /* ignore */ }
+          mediaSrc.connect(aiNode);
+          aiNode.connect(voiceGain);
+          engineKind = "ai";
+          sendEngineParams();
+          updateEngineLine(); updateNp();
+          toast("AI voice engine ready — music is removed automatically.", "success");
+        }).catch(function () { useFilterEngine(); });
+      } catch (e) { useFilterEngine(); }
+    } else {
+      useFilterEngine();
     }
-    if (muteI) return 0;
-    if (soloAny && !soloI) return 0;
-    if (mode === "vocals") return 0;
-    if (mode === "karaoke") return 1;
-    if (mode === "original") return 1;
-    return stemI / 100;
   }
 
-  function applyStemGains() {
-    if (!actx) return;
+  /**
+   * Fallback for WebViews without AudioWorklet: a real-time vocal-band
+   * isolation chain (mid extraction + presence shaping) — still voice only,
+   * just without the adaptive spectral model.
+   */
+  function useFilterEngine() {
+    if (engineKind === "filters" || !actx || !mediaSrc) return;
     try {
-      var t = actx.currentTime;
-      if (graphV) graphV.gain.setTargetAtTime(effStem("v"), t, 0.03);
-      if (graphI) graphI.gain.setTargetAtTime(effStem("i"), t, 0.03);
+      var mono = actx.createGain();
+      try { mono.channelCount = 1; mono.channelCountMode = "explicit"; } catch (e) { /* ignore */ }
+      var hp = cFilter(actx, "highpass", 145);
+      var body = cFilter(actx, "peaking", 320, 0.9); body.gain.value = 2.5;
+      var pres = cFilter(actx, "peaking", 2600, 1.0); pres.gain.value = 3.5;
+      var lp = cFilter(actx, "lowpass", 6200);
+      var c = cComp(actx);
+      var make = cGain(actx, 1.25);
+      filterOut = actx.createGain();
+      mediaSrc.connect(mono);
+      mono.connect(hp); hp.connect(body); body.connect(pres); pres.connect(lp);
+      lp.connect(c); c.connect(make); make.connect(filterOut);
+      try { mediaSrc.disconnect(voiceGain); } catch (e) { /* ignore */ }
+      filterOut.connect(voiceGain);
+      engineKind = "filters";
+      updateEngineLine(); updateNp();
     } catch (e) {
-      if (graphV) graphV.gain.value = effStem("v");
-      if (graphI) graphI.gain.value = effStem("i");
+      engineKind = "none";
+      updateEngineLine();
     }
+  }
+
+  function sendEngineParams() {
+    if (!aiNode) return;
+    try {
+      aiNode.port.postMessage({
+        t: "params",
+        strength: aiStrength,
+        gateOn: aiDenoise,
+        capture: !!exportState
+      });
+    } catch (e) { /* ignore */ }
+  }
+
+  function onEngineMessage(e) {
+    var d = (e && e.data) || {};
+    if (d.t === "ready") {
+      engineInfo = d;
+      updateEngineLine();
+      updateNp();
+      return;
+    }
+    if (d.t === "stats") { onEngineStats(d); return; }
+    if (d.t === "pcm") { onCaptureChunk(d); return; }
+  }
+
+  /* ============================================================
+     Live learning: the engine's own metrics become the song's
+     profile, so a track that has been played once already shows
+     what the AI measured about it.
+     ============================================================ */
+  var live = { id: null, frames: 0, voice: 0, cut: 0, n: 0, saved: 0 };
+
+  function resetLive(song) {
+    live.id = song ? song.id : null;
+    live.frames = 0; live.voice = 0; live.cut = 0; live.n = 0; live.saved = 0;
+  }
+
+  function liveClarity(cutDb, voiceRatio) {
+    var c = 32 + Math.min(46, Math.abs(cutDb) * 1.5) + Math.max(0, Math.min(22, (voiceRatio - 0.15) * 30));
+    return Math.max(12, Math.min(99, Math.round(c)));
+  }
+
+  function onEngineStats(d) {
+    engineStats = d;
+    updateAIMeters(d);
+    var song = currentSong();
+    if (!song) return;
+    if (live.id !== song.id) resetLive(song);
+    live.frames += (d.frames || 0);
+    live.voice += (d.voice || 0);
+    live.cut += (d.cutDb || 0);
+    live.n++;
+    if (live.frames < 800 || live.n < 6) return;
+    var vAvg = live.voice / live.n, cAvg = live.cut / live.n;
+    var prof = {
+      ai: true, live: true, engine: "vp-ai-v6",
+      voice: Math.round(vAvg * 100) / 100,
+      cutDb: Math.round(cAvg * 10) / 10,
+      f0: Math.round(d.f0 || 0),
+      clarity: liveClarity(cAvg, vAvg),
+      at: Date.now()
+    };
+    song._profile = prof;
+    if (Date.now() - live.saved > 15000) {
+      live.saved = Date.now();
+      idbPut(cleanRec(song));
+      renderHome(); renderSearch();
+    }
+    updateEngineLine();
+  }
+
+  function updateAIMeters(d) {
+    var voicePct = Math.round((d.voice || 0) * 100);
+    var vf = $("np-meter-voice");
+    if (vf) vf.style.width = Math.max(2, voicePct) + "%";
+    var vv = $("np-voice-val");
+    if (vv) vv.textContent = voicePct + "%";
+    var cut = Math.abs(d.cutDb || 0);
+    var cf = $("np-meter-cut");
+    if (cf) cf.style.width = Math.min(100, cut * 2.6) + "%";
+    var cv = $("np-cut-val");
+    if (cv) cv.textContent = cut < 0.6 ? "0 dB" : "−" + Math.round(cut) + " dB";
+    var lat = $("np-ai-latency");
+    if (lat) lat.textContent = Math.round(d.latencyMs || 0) + " ms";
+    var f0 = $("np-ai-pitch");
+    if (f0) f0.textContent = d.f0 > 40 ? Math.round(d.f0) + " Hz" : "–";
+    var st = $("np-ai-state");
+    if (st) {
+      st.textContent = !d.voice ? "starting…" :
+        (d.voice > 0.55 ? "voice isolated" : (d.voice > 0.25 ? "tracking voice" : "music muted"));
+    }
+  }
+
+  /* ============================================================
+     Transport
+     ============================================================ */
+  function currentPos() {
+    if (!audioEl) return 0;
+    var p = audioEl.currentTime || 0;
+    if (!isFinite(p) || p < 0) p = 0;
+    if (duration > 0 && p > duration) p = duration;
+    return p;
+  }
+
+  function startAt(offset) {
+    if (!ensureCtx() || !loaded || !audioEl) return;
+    var d = duration || (isFinite(audioEl.duration) ? audioEl.duration : 0);
+    offset = Math.max(0, Math.min(offset, Math.max(d - 0.05, 0)));
+    try { if (Math.abs((audioEl.currentTime || 0) - offset) > 0.05) audioEl.currentTime = offset; } catch (e) { /* ignore */ }
+    try { audioEl.playbackRate = playbackRate; } catch (e) { /* ignore */ }
+    var pr = null;
+    try { pr = audioEl.play(); } catch (e) { pr = null; }
+    if (pr && typeof pr.catch === "function") {
+      pr.catch(function () {
+        playing = false; setPlayIcon(false);
+        toast("Playback could not start — tap play again.", "error");
+      });
+    }
+    startVizLoop();
+  }
+
+  function pausePlayback() {
+    if (audioEl && !audioEl.paused) { try { audioEl.pause(); } catch (e) { /* ignore */ } }
+  }
+
+  function stopPlayback() {
+    pausePlayback();
+    if (audioEl) { try { audioEl.currentTime = 0; } catch (e) { /* ignore */ } }
+    playing = false;
+    setPlayIcon(false);
+    updateProgressUI();
+  }
+
+  function unloadCurrent() {
+    stopPlayback();
+    loaded = false;
+    duration = 0;
+    if (audioEl) { try { audioEl.removeAttribute("src"); audioEl.load(); } catch (e) { /* ignore */ } }
+    if (mediaUrl) { try { URL.revokeObjectURL(mediaUrl); } catch (e) { /* ignore */ } mediaUrl = null; }
+    $("np-title").textContent = "Nothing playing";
+    $("np-artist").textContent = "Add songs to get started";
+    updateNpArt();
+    updateProgressUI();
+    drawViz();
+  }
+
+  function togglePlay() {
+    if (!loaded) {
+      var ids = currentViewIds.length ? currentViewIds.slice() : library.map(function (s) { return s.id; });
+      if (!ids.length) { toast("Add songs first — tap ＋ in the top bar."); return; }
+      playFromList(ids, 0);
+      return;
+    }
+    if (!ensureCtx()) return;
+    if (playing) pausePlayback();
+    else startAt(duration && currentPos() >= duration - 0.15 ? 0 : currentPos());
+  }
+
+  function seekTo(ratio) {
+    if (!loaded || !audioEl || !duration) return;
+    ratio = Math.max(0, Math.min(1, ratio));
+    if (exportState) stopExport(true);
+    try { audioEl.currentTime = ratio * duration; } catch (e) { /* ignore */ }
+    updateProgressUI();
   }
 
   function applyVolume() {
@@ -582,102 +902,21 @@
     var svv = $("set-volume-val");
     if (svv) svv.textContent = Math.round(volume) + "%";
   }
-
-  function currentPos() {
-    if (!buffer) return 0;
-    var pos = playing ? (offsetBase + (actx.currentTime - startCtxTime) * playbackRate) : offsetBase;
-    if (pos < 0) pos = 0;
-    if (pos > duration) pos = duration;
-    return pos;
-  }
-
-  function stopSource() {
-    if (source) {
-      try { source.onended = null; } catch (e) { /* ignore */ }
-      try { source.stop(0); } catch (e) { /* ignore */ }
-      try { source.disconnect(); } catch (e) { /* ignore */ }
-      source = null;
+  function applyVoiceBoost() {
+    if (!voiceGain) return;
+    var g = dbToGain(aiBoostDb);
+    if (actx) {
+      try { voiceGain.gain.setTargetAtTime(g, actx.currentTime, 0.05); return; } catch (e) { /* ignore */ }
     }
-    if (graphV) { try { graphV.disconnect(); } catch (e) { /* ignore */ } graphV = null; }
-    if (graphI) { try { graphI.disconnect(); } catch (e) { /* ignore */ } graphI = null; }
+    voiceGain.gain.value = g;
   }
 
-  function startAt(offset) {
-    if (!buffer || !actx) return;
-    if (actx.state === "suspended") {
-      actx.resume().catch(function () { /* ignore */ });
-    }
-    stopSource();
-    offset = Math.max(0, Math.min(offset, Math.max(duration - 0.05, 0)));
-    source = actx.createBufferSource();
-    source.buffer = buffer;
-    try { source.playbackRate.value = playbackRate; } catch (e) { /* ignore */ }
-
-    var song = currentSong();
-    var profile = effectiveProfile(song, buffer);
-    if (mode === "original") {
-      source.connect(eqIn);
-    } else {
-      /* Both stems are always built; effStem() zeroes the unused one so a
-         single-stem mode (vocals / karaoke) is exact and switching is free.
-         Crucial: connect both stem outputs into mix bus! */
-      graphV = actx.createGain();
-      graphI = actx.createGain();
-      buildStems(actx, source, profile, graphV, graphI);
-      graphV.connect(mix);
-      graphI.connect(mix);
-      applyStemGains();
-    }
-    source.onended = function () {
-      if (!playing) return;
-      if (currentPos() >= duration - 0.25) onTrackEnded();
-    };
-    try { source.start(0, offset); }
-    catch (e) {
-      playing = false;
-      setPlayIcon(false);
-      toast("Playback failed — try another song.", "error");
-      return;
-    }
-    offsetBase = offset;
-    startCtxTime = actx.currentTime;
-    playing = true;
-    setPlayIcon(true);
-    updateNpArt();
-    startVizLoop();
-  }
-
-  function pausePlayback() {
-    if (!playing) return;
-    offsetBase = currentPos();
-    playing = false;
-    stopSource();
-    setPlayIcon(false);
-    updateProgressUI();
-  }
-
-  function stopPlayback() {
-    offsetBase = 0;
-    playing = false;
-    stopSource();
-    setPlayIcon(false);
-    updateProgressUI();
-  }
-
-  function togglePlay() {
-    if (!buffer) {
-      var ids = currentViewIds.length ? currentViewIds.slice() : library.map(function (s) { return s.id; });
-      if (!ids.length) { toast("Add songs first — tap ＋ in the top bar."); return; }
-      playFromList(ids, 0);
-      return;
-    }
-    if (!ensureCtx()) return;
-    if (playing) pausePlayback();
-    else startAt(currentPos() >= duration - 0.1 ? 0 : currentPos());
-  }
-
-  /* ---------------- queue ---------------- */
-  var queue = [], qi = -1, shuffle = false, repeatMode = "off";
+  /* ============================================================
+     Queue / track loading
+     The queue holds song ids only — never audio data.
+     ============================================================ */
+  var queue = [], qi = -1;
+  var shuffle = false, repeatMode = "off";
 
   function playFromList(ids, idx) {
     if (!ids || !ids.length) return;
@@ -703,152 +942,44 @@
     if (!ensureCtx()) { toast("Audio is not supported on this device.", "error"); return; }
     var my = ++loadToken;
     currentId = id;
+    resetLive(song);
     markCurrentRow(); renderQueue(); updateNp();
-    getBuffer(song).then(function (buf) {
+    if (exportState) stopExport(true);
+    prepareMedia(song).then(function (info) {
       if (my !== loadToken) return;
       stopPlayback();
-      buffer = buf;
-      duration = buf.duration || 0;
-      offsetBase = 0;
-      if (song.duration !== duration) { song.duration = duration; idbPut(cleanRec(song)); }
+      loaded = true;
+      duration = info.duration || song.duration || 0;
+      if (info.duration && Math.abs((song.duration || 0) - info.duration) > 0.5) {
+        song.duration = info.duration;
+        idbPut(cleanRec(song));
+        renderHome(); renderSearch();
+      }
       $("np-title").textContent = song.title;
-      $("np-artist").textContent = song.artist + " · " + (buf.numberOfChannels >= 2 ? "stereo" : "mono");
+      $("np-artist").textContent = song.artist + (song.path ? " · phone library" : " · imported");
       updateNpArt();
       updateProgressUI();
       drawViz();
-      markCurrentRow(); renderQueue(); updateNp();
       updateEngineLine();
-      /* Auto Purify: music is removed automatically for every new track */
-      applyAutoMode();
+      updateNp();
       if (autoplay) { startAt(0); openNp(); }
-      /* run the analyzer (once per song, result persisted) */
-      if (!song._profile) {
-        setTimeout(function () {
-          try {
-            var p = analyzeBuffer(buf);
-            if (my !== loadToken) return;
-            song._profile = p;
-            idbPut(cleanRec(song));
-            updateEngineLine();
-            renderHome(); renderSearch();
-            if (playing && mode !== "original") startAt(currentPos());
-          } catch (e) { /* keep default strategy */ }
-        }, 300);
-      }
-    }).catch(function () {
+      if (!song._profile) queueAnalysis([song.id]);
+    }).catch(function (err) {
       if (my !== loadToken) return;
-      toast("Could not play “" + song.title + "” — file may be corrupt.", "error");
-    });
-  }
-
-  function decodeArrayBuffer(ab) {
-    return new Promise(function (resolve, reject) {
-      if (!ensureCtx()) {
-        reject(new Error("AudioContext not supported"));
-        return;
-      }
-      var done = false;
-      function ok(b) { if (!done) { done = true; resolve(b); } }
-      function fail(e) { if (!done) { done = true; reject(e || new Error("decode")); } }
-      try {
-        var p = actx.decodeAudioData(ab, ok, fail);
-        if (p && typeof p.then === "function") p.then(ok, fail);
-      } catch (e) { fail(e); }
-    });
-  }
-
-  function cacheBuffer(song, b) {
-    for (var i = 0; i < library.length; i++) if (library[i] !== song) library[i]._buffer = null;
-    song._buffer = b;
-  }
-
-  function loadFromDevicePath(song, resolve, reject) {
-    var url = "https://vocalpure.local/audio?path=" + encodeURIComponent(song.path);
-    fetch(url)
-      .then(function (res) {
-        if (!res.ok) throw new Error("fetch: " + res.status);
-        return res.arrayBuffer();
-      })
-      .then(function (ab) {
-        return decodeArrayBuffer(ab);
-      })
-      .then(function (b) {
-        cacheBuffer(song, b);
-        resolve(b);
-      })
-      .catch(function (fetchErr) {
-        // Fallback: try native bridge readAudioBase64
-        if (window.VocalPureAndroid && window.VocalPureAndroid.readAudioBase64) {
-          try {
-            var b64Data = window.VocalPureAndroid.readAudioBase64(song.path);
-            if (b64Data && b64Data.length > 0) {
-              var binary = atob(b64Data);
-              var len = binary.length;
-              var bytes = new Uint8Array(len);
-              for (var i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
-              decodeArrayBuffer(bytes.buffer).then(function (b) {
-                cacheBuffer(song, b);
-                resolve(b);
-              }, reject);
-              return;
-            }
-          } catch (bridgeErr) { /* ignore */ }
-        }
-        reject(fetchErr || new Error("Failed to load device audio"));
-      });
-  }
-
-  function getBuffer(song) {
-    return new Promise(function (resolve, reject) {
-      if (song._buffer) { resolve(song._buffer); return; }
-      if (!ensureCtx()) { reject(new Error("AudioContext unavailable")); return; }
-
-      // 1. If song has a blob (uploaded or imported via file picker)
-      if (song.blob) {
-        var blob = song.blob;
-        function onAb(ab) {
-          decodeArrayBuffer(ab).then(function (b) { cacheBuffer(song, b); resolve(b); }, reject);
-        }
-        try {
-          if (blob.arrayBuffer) {
-            blob.arrayBuffer().then(onAb).catch(function () {
-              if (song.path) loadFromDevicePath(song, resolve, reject);
-              else reject(new Error("read"));
-            });
-            return;
-          } else {
-            var r = new FileReader();
-            r.onload = function () { onAb(r.result); };
-            r.onerror = function () {
-              if (song.path) loadFromDevicePath(song, resolve, reject);
-              else reject(new Error("read"));
-            };
-            r.readAsArrayBuffer(blob);
-            return;
-          }
-        } catch (e) {
-          if (song.path) loadFromDevicePath(song, resolve, reject);
-          else reject(e);
-          return;
-        }
-      }
-
-      // 2. If song is a device file with path
-      if (song.path) {
-        loadFromDevicePath(song, resolve, reject);
-        return;
-      }
-
-      reject(new Error("no data"));
+      loaded = false;
+      duration = 0;
+      setPlayIcon(false);
+      toast("Could not play “" + song.title + "”" + (err && err.message ? " — " + err.message : "."), "error");
     });
   }
 
   function onTrackEnded() {
+    if (exportState) { stopExport(true); return; }
     if (repeatMode === "one") { startAt(0); return; }
     if (qi >= 0 && qi < queue.length - 1) { qi++; loadSongById(queue[qi], true); return; }
     if (repeatMode === "all" && queue.length) { qi = 0; loadSongById(queue[qi], true); return; }
-    playing = false; offsetBase = 0;
-    setPlayIcon(false); updateProgressUI();
+    playing = false;
+    updateProgressUI();
   }
 
   function stepNext() {
@@ -857,144 +988,119 @@
     loadSongById(queue[qi], true);
   }
   function stepPrev() {
-    if (buffer && currentPos() > 3) { startAt(0); return; }
+    if (loaded && currentPos() > 3) { startAt(0); return; }
     if (!queue.length) { toast("Nothing in the queue yet."); return; }
     qi = (qi - 1 + queue.length) % queue.length;
     loadSongById(queue[qi], true);
   }
 
   /* ============================================================
-     Isolation UI
+     AI controls (there is no mode / stem / music control here)
      ============================================================ */
-  var MODE_NAMES = { original: "Original", vocals: "🎤 Vocals", karaoke: "🎶 Karaoke", custom: "🎚 My mix" };
+  function strengthLabel(name) {
+    var api = window.VPAIEngine;
+    var s = api && api.strengths && api.strengths[name];
+    return (s && s.label) || name;
+  }
+
+  function setAIStrength(name, opts) {
+    if (AI_STRENGTHS.indexOf(name) < 0) name = "balanced";
+    aiStrength = name;
+    sendEngineParams();
+    updateAIUI();
+    updateEngineLine();
+    saveSettings();
+    if (!opts || opts.silent !== true) toast("AI separation strength: " + strengthLabel(name) + ".");
+  }
+
+  function setAIBoost(db) {
+    aiBoostDb = Math.max(0, Math.min(18, Math.round(Number(db) || 0)));
+    applyVoiceBoost();
+    updateAIUI();
+    saveSettings();
+  }
+
+  function setAIDenoise(on) {
+    aiDenoise = !!on;
+    sendEngineParams();
+    updateAIUI();
+    saveSettings();
+    toast(aiDenoise ? "Music-only parts are silenced completely." : "Music-only parts keep a quiet tail.");
+  }
+
+  function updateAIUI() {
+    var btns = document.querySelectorAll(".ai-btn");
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].getAttribute("data-ai") === aiStrength;
+      btns[i].classList.toggle("is-active", on);
+      btns[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+    var sel = $("set-ai-strength");
+    if (sel && sel.value !== aiStrength) sel.value = aiStrength;
+    var b = $("np-voice-boost");
+    if (b) b.value = String(aiBoostDb);
+    var bv = $("np-voice-boost-val");
+    if (bv) bv.textContent = "+" + aiBoostDb + " dB";
+    var sb = $("set-ai-boost");
+    if (sb) sb.value = String(aiBoostDb);
+    var sbv = $("set-ai-boost-val");
+    if (sbv) sbv.textContent = "+" + aiBoostDb + " dB";
+    var sw = $("np-denoise");
+    if (sw) { sw.classList.toggle("is-on", aiDenoise); sw.setAttribute("aria-checked", aiDenoise ? "true" : "false"); }
+    var sw2 = $("set-ai-denoise");
+    if (sw2) { sw2.classList.toggle("is-on", aiDenoise); sw2.setAttribute("aria-checked", aiDenoise ? "true" : "false"); }
+  }
 
   function updateEngineLine() {
     var song = currentSong();
     var p = song ? song._profile : null;
-
-    /* clarity ring + strategy card on the Now Playing screen */
-    var card = $("np-engine-card");
-    if (card) card.classList.toggle("is-analyzing", !!song && !p);
-    var ring = $("np-clarity-ring"), num = $("np-clarity-num");
-    if (ring && num) {
-      if (p) {
-        ring.style.background = "conic-gradient(var(--accent) " + Math.round(p.clarity * 3.6) + "deg, rgba(255,255,255,0.08) 0deg)";
-        num.textContent = p.clarity + "%";
+    var label = engineKind === "ai" ? "AI voice isolation"
+      : (engineKind === "filters" ? "Voice filter isolation" : "Starting AI engine…");
+    var strat = $("np-strategy");
+    if (strat) strat.textContent = label;
+    var detail = $("np-strategy-detail");
+    if (detail) {
+      if (!song) detail.textContent = "Add a song — the AI analyzes it while it plays and removes the music.";
+      else if (engineKind === "none") detail.textContent = "Preparing the on-device engine…";
+      else if (p && p.live) {
+        detail.textContent = "voice " + Math.round((p.voice || 0) * 100) + "% of the time · music cut " +
+          Math.abs(Math.round(p.cutDb || 0)) + " dB · clarity " + p.clarity + "%";
+      } else if (p) {
+        detail.textContent = "analysed on import: " + Math.round((p.centerRatio || 0) * 100) +
+          "% of the voice band is centre-locked" + (p.stereo === false ? " · mono file" : "");
+      } else if (engineKind === "ai") {
+        detail.textContent = "listening to this track — the engine refines its voice profile while it plays.";
       } else {
-        ring.style.background = "conic-gradient(rgba(255,255,255,0.08) 0deg, rgba(255,255,255,0.08) 360deg)";
-        num.textContent = song ? "…" : "–";
+        detail.textContent = "voice-band isolation is active on this device.";
       }
     }
-    var stratEl = $("np-strategy"), detailEl = $("np-strategy-detail");
-    if (stratEl && detailEl) {
-      if (!song) {
-        stratEl.textContent = "Auto purify engine";
-        detailEl.textContent = "Add songs — they are analyzed automatically, then their music is removed.";
-      } else if (!p) {
-        stratEl.textContent = "Analyzing automatically…";
-        detailEl.textContent = "Measuring the stereo image to pick the strongest isolation strategy.";
-      } else {
-        var lbl = STRATEGY_LABELS[p.strategy] || "isolation";
-        stratEl.textContent = lbl.charAt(0).toUpperCase() + lbl.slice(1) +
-          (autoPurify && mode === "vocals" ? " · music auto-removed" : "");
-        detailEl.textContent = p.stereo
-          ? Math.round(p.centerRatio * 100) + "% of the vocal band is center-locked · est. clarity " + p.clarity + "%"
-          : "Mono file — frequency focus · est. clarity " + p.clarity + "%";
-      }
-    }
-
     var el = $("engine-line");
-    if (!el) return;
-    if (!song) { el.innerHTML = "Every song is <b>analyzed automatically</b> on import — the engine picks the strongest strategy per track."; return; }
-    if (autoPurify && mode === "vocals") { el.innerHTML = "Auto purify is on — the music track was <b>removed automatically</b>; only the pure voice plays. Switch modes above any time."; return; }
-    if (mode === "original") { el.innerHTML = "Original mix — untouched audio. Pick a mode above to isolate."; return; }
-    if (!p) { el.innerHTML = "Analyzing stereo balance… first playback uses the best-guess strategy."; return; }
-    var strategy = STRATEGY_LABELS[p.strategy] || "isolation";
-    var detail = p.stereo
-      ? Math.round(p.centerRatio * 100) + "% of the vocal band is center-locked"
-      : "mono file — frequency focus applied";
-    el.innerHTML = "Strategy: <b>" + strategy + "</b> · " + detail + " · est. clarity <b>" + p.clarity + "%</b>";
-  }
-
-  var modeBtns = Array.prototype.slice.call(document.querySelectorAll(".mode-btn"));
-  function setMode(m, opts) {
-    opts = opts || {};
-    if (["original", "vocals", "karaoke", "custom"].indexOf(m) < 0) m = "original";
-    var changed = (m !== mode);
-    if (mode === "custom" && m !== "custom") { customMem.v = stemV; customMem.i = stemI; }
-    mode = m;
-    if (m === "original") { stemV = 100; stemI = 100; }
-    else if (m === "vocals") { stemV = 100; stemI = 0; }
-    else if (m === "karaoke") { stemV = 0; stemI = 100; }
-    else if (opts.fromButton) { stemV = customMem.v; stemI = customMem.i; }
-    for (var k = 0; k < modeBtns.length; k++) {
-      modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === m);
+    if (el) {
+      if (engineKind === "ai" && p && p.live) {
+        el.innerHTML = "AI: the music is <b>removed live</b> from the stream — voice detected " +
+          Math.round((p.voice || 0) * 100) + "% of the time, music attenuated <b>" +
+          Math.abs(Math.round(p.cutDb || 0)) + " dB</b>. There is no music mode: only the voice is played.";
+      } else if (engineKind === "ai") {
+        el.innerHTML = "AI engine <b>online</b> — it learns this exact track while it plays and removes the music automatically. Only the voice is ever played.";
+      } else if (engineKind === "filters") {
+        el.innerHTML = "This device has no AudioWorklet, so the built-in <b>voice-band filter</b> isolates the voice instead of the adaptive model.";
+      } else {
+        el.innerHTML = "Starting the on-device AI engine…";
+      }
     }
-    updateStemUI();
-    updateNp();
-    saveSettings();
-    if (buffer && playing && (changed || opts.rebuild)) startAt(currentPos());
-    else if (buffer) applyStemGains();
-    updateEngineLine();
-  }
-
-  function ensureCustomMix() {
-    if (mode !== "custom") setMode("custom", {});
-  }
-
-  /**
-   * Auto Purify: silently move to the vocals-only stem when a fresh track
-   * is loaded (called before startAt, so no rebuild is needed). Keeps the
-   * mode buttons in sync. Returns true when it applied.
-   */
-  function applyAutoMode() {
-    if (!autoPurify || mode === "vocals") return false;
-    if (mode === "custom") { customMem.v = stemV; customMem.i = stemI; }
-    mode = "vocals";
-    stemV = 100; stemI = 0;
-    for (var k = 0; k < modeBtns.length; k++) {
-      modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === "vocals");
-    }
-    updateStemUI();
-    updateNp();
-    updateEngineLine();
-    saveSettings();
-    return true;
-  }
-
-  function syncModeButtons() {
-    for (var k = 0; k < modeBtns.length; k++) {
-      modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === mode);
+    var st = $("set-ai-status");
+    if (st) {
+      if (engineKind === "ai") {
+        st.textContent = "AI engine online" + (engineInfo
+          ? " · " + Math.round(engineInfo.latencyMs || 0) + " ms latency · " + (engineInfo.fft || 1024) + "-point FFT · " + Math.round((engineInfo.sr || 48000) / 1000) + " kHz"
+          : "");
+      } else if (engineKind === "filters") {
+        st.textContent = "Filter engine (this device has no AudioWorklet)";
+      } else {
+        st.textContent = "Starting…";
+      }
     }
   }
-
-  function updateAutoUI() {
-    var sw = $("set-autopurify");
-    if (sw) {
-      sw.classList.toggle("is-on", autoPurify);
-      sw.setAttribute("aria-checked", autoPurify ? "true" : "false");
-    }
-    var pill = $("auto-pill");
-    if (pill) pill.hidden = !autoPurify;
-  }
-
-  function updateStemUI() {
-    var sv = $("stem-vocal"), si = $("stem-music");
-    if (sv) sv.value = String(Math.round(stemV));
-    if (si) si.value = String(Math.round(stemI));
-    var svv = $("stem-vocal-val"), siv = $("stem-music-val");
-    if (svv) svv.textContent = Math.round(stemV) + "%";
-    if (siv) siv.textContent = Math.round(stemI) + "%";
-    var mv = $("mute-vocal"), mi = $("mute-music"), soV = $("solo-vocal"), soI = $("solo-music");
-    if (mv) mv.classList.toggle("is-off", muteV);
-    if (mi) mi.classList.toggle("is-off", muteI);
-    if (soV) soV.classList.toggle("is-off", soloV);
-    if (soI) soI.classList.toggle("is-off", soloI);
-    var cv = $("card-vocal"), ci = $("card-music");
-    if (cv) cv.classList.toggle("stem-muted", effStem("v") <= 0.001);
-    if (ci) ci.classList.toggle("stem-muted", effStem("i") <= 0.001);
-  }
-
   /* ============================================================
      Equalizer
      ============================================================ */
@@ -1132,13 +1238,6 @@
     if (prog) prog.setAttribute("aria-valuenow", String(Math.round(pct)));
   }
 
-  function seekTo(ratio) {
-    if (!buffer || duration <= 0) return;
-    ratio = Math.max(0, Math.min(1, ratio));
-    var pos = ratio * duration;
-    if (playing) startAt(pos);
-    else { offsetBase = pos; updateProgressUI(); }
-  }
 
   /* ============================================================
      Rendering — lists
@@ -1172,7 +1271,7 @@
   function songRowHtml(s, opts) {
     opts = opts || {};
     var dur = s.duration > 0 ? fmtTime(s.duration) : "–:––";
-    var autoFlag = s._profile ? ' <em class="row-auto">✓ auto</em>' : "";
+    var autoFlag = s._profile ? ' <em class="row-auto">✓ AI</em>' : "";
     var isCur = s.id === currentId;
     var html = '<li class="song-row' + (isCur ? " is-current" + (playing ? "" : " is-paused") : "") + '" data-id="' + escapeHtml(s.id) + '">' +
       '<button type="button" class="song-main" aria-label="Play ' + escapeHtml(s.title) + '">' +
@@ -1303,7 +1402,7 @@
   function updateCounts() {
     var n = library.length;
     var total = 0;
-    for (var i = 0; i < n; i++) total += (library[i].blob && library[i].blob.size) || 0;
+    for (var i = 0; i < n; i++) total += library[i].size || 0;
     var sc = $("set-song-count"), ss = $("set-storage");
     if (sc) sc.textContent = String(n);
     if (ss) ss.textContent = fmtSize(total);
@@ -1323,11 +1422,9 @@
     if (!s) return;
     var wasCurrent = (id === currentId);
     if (wasCurrent) {
-      stopPlayback();
-      buffer = null; currentId = null; duration = 0; offsetBase = 0;
-      $("np-title").textContent = "Nothing playing";
-      $("np-artist").textContent = "Add songs to get started";
-      updateProgressUI(); drawViz();
+      unloadCurrent();
+      currentId = null;
+      song.blob = null;
     }
     library = library.filter(function (x) { return x.id !== id; });
     idbDel(id);
@@ -1384,18 +1481,13 @@
   function updateNp() {
     var s = currentSong();
     var chip = $("np-mode-chip");
-    if (chip) chip.textContent = s ? ((MODE_NAMES[mode] || mode) + (autoPurify && mode === "vocals" ? " · auto" : "")) : "—";
+    if (chip) chip.textContent = s ? "🎤 pure voice · AI" : "—";
     var fav = $("np-fav");
     if (fav) fav.classList.toggle("is-fav", !!(s && s.favorite));
     var play = $("btn-play");
     if (play) play.disabled = !s;
-    var stems = ["stem-vocal", "stem-music", "mute-vocal", "mute-music", "solo-vocal", "solo-music",
-      "exp-vocals", "exp-karaoke", "exp-mix"];
-    for (var i = 0; i < stems.length; i++) {
-      var el = $(stems[i]);
-      if (el) el.disabled = !s;
-    }
-    for (var m = 0; m < modeBtns.length; m++) modeBtns[m].disabled = !s;
+    var exp = $("exp-voice");
+    if (exp && !exportState) exp.disabled = !s;
   }
 
   function renderQueue() {
@@ -1461,29 +1553,14 @@
     plSheetSongId = null;
   }
 
-  /* ============================================================
-     WAV export (native bridge in the app, browser download otherwise)
+/* ============================================================
+     WAV export — the purified voice is *recorded* while the song
+     plays (1× real time). Nothing is ever buffered as a whole:
+     the worklet streams 16-bit PCM chunks and each chunk is
+     appended straight to the output file (native bridge) or to a
+     blob part list (browser). This is the only export path, so a
+     two-hour file is as safe as a two-minute one.
      ============================================================ */
-  function encodeWAV(ab) {
-    var numCh = Math.min(2, ab.numberOfChannels), sr = Math.floor(ab.sampleRate) || 44100, len = ab.length;
-    var dataLen = len * numCh * 2;
-    var buf = new ArrayBuffer(44 + dataLen), v = new DataView(buf), o = 0;
-    function wstr(s) { for (var i = 0; i < s.length; i++) v.setUint8(o++, s.charCodeAt(i)); }
-    function u32(x) { v.setUint32(o, x, true); o += 4; }
-    function u16(x) { v.setUint16(o, x, true); o += 2; }
-    wstr("RIFF"); u32(36 + dataLen); wstr("WAVE"); wstr("fmt "); u32(16); u16(1); u16(numCh);
-    u32(sr); u32(sr * numCh * 2); u16(numCh * 2); u16(16); wstr("data"); u32(dataLen);
-    var chans = [];
-    for (var c = 0; c < numCh; c++) chans.push(ab.getChannelData(c));
-    for (var i = 0; i < len; i++) {
-      for (var c2 = 0; c2 < numCh; c2++) {
-        var s2 = Math.max(-1, Math.min(1, chans[c2][i]));
-        v.setInt16(o, s2 < 0 ? s2 * 0x8000 : s2 * 0x7FFF, true); o += 2;
-      }
-    }
-    return new Blob([buf], { type: "audio/wav" });
-  }
-
   function b64(u8) {
     var s = "";
     for (var i = 0; i < u8.length; i += 8192) {
@@ -1492,172 +1569,175 @@
     return btoa(s);
   }
 
-  function saveWavFile(blob, filename) {
-    var native = window.VocalPureAndroid && window.VocalPureAndroid.writeFile;
-    if (native) {
-      return blob.arrayBuffer().then(function (ab) {
-        var u8 = new Uint8Array(ab);
-        var CHUNK = 1.5 * 1024 * 1024;
-        var total = Math.ceil(u8.length / CHUNK);
-        var doneP = Promise.resolve();
-        for (var i = 0; i < total; i++) {
-          (function (i) {
-            doneP = doneP.then(function () {
-              var part = u8.subarray(i * CHUNK, Math.min(u8.length, (i + 1) * CHUNK));
-              var r = native(filename, b64(part), i === total - 1);
-              if (typeof r === "string" && r.indexOf("error") === 0) {
-                throw new Error(r);
-              }
-            });
-          })(i);
+  function exportFileName(song) {
+    var safe = String((song && song.title) || "voice").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60) || "voice";
+    var artist = String((song && song.artist) || "").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 40);
+    return (artist && artist !== "Unknown artist" ? artist + " - " : "") + safe + " (pure voice).wav";
+  }
+
+  function wavHeader(sampleRate, channels, dataBytes) {
+    var buf = new ArrayBuffer(44), v = new DataView(buf), o = 0;
+    function wstr(s) { for (var i = 0; i < s.length; i++) v.setUint8(o++, s.charCodeAt(i)); }
+    function u32(x) { v.setUint32(o, x, true); o += 4; }
+    function u16(x) { v.setUint16(o, x, true); o += 2; }
+    var total = dataBytes > 0 ? 36 + dataBytes : 0x7ffff000;
+    wstr("RIFF"); u32(total); wstr("WAVE"); wstr("fmt "); u32(16);
+    u16(1); u16(channels); u32(sampleRate); u32(sampleRate * channels * 2);
+    u16(channels * 2); u16(16); wstr("data"); u32(dataBytes > 0 ? dataBytes : 0x7ffff000);
+    return new Uint8Array(buf);
+  }
+
+  function nativeWriter(name) {
+    var api = window.VocalPureAndroid;
+    if (!api || typeof api.writeFile !== "function") return null;
+    return {
+      write: function (u8, isLast) {
+        try { return api.writeFile(name, u8 && u8.length ? b64(u8) : "", !!isLast); }
+        catch (e) { return "error:" + (e && e.message ? e.message : "write failed"); }
+      },
+      finish: function (dataBytes) {
+        if (typeof api.finishWav === "function") {
+          try { return api.finishWav(name, dataBytes); } catch (e) { return "error:" + (e && e.message ? e.message : "finish failed"); }
         }
-        return doneP;
-      });
-    }
-    /* plain browser: normal download */
-    return new Promise(function (res, rej) {
-      try {
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement("a");
-        a.href = url; a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(function () {
-          try { document.body.removeChild(a); } catch (e) { /* ignore */ }
-          try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
-        }, 4000);
-        res();
-      } catch (e) { rej(e); }
-    });
-  }
-
-  function setExporting(busy) {
-    exporting = busy;
-    var dis = busy || !buffer;
-    ["exp-vocals", "exp-karaoke", "exp-mix"].forEach(function (id) {
-      var el = $(id);
-      if (el) el.disabled = dis;
-    });
-  }
-
-  function renderExport(kind) {
-    var song = currentSong();
-    if (!song || !buffer) { toast("Play a song first, then export your mix."); return; }
-    if (exporting) return;
-    var OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    if (!OC) { toast("Export is not supported here.", "error"); return; }
-    if (!ensureCtx()) return;
-    var sr = buffer.sampleRate || 44100;
-    if (buffer.duration > 15 * 60) { toast("That song is over 15 minutes — export supports up to 15 min.", "error"); return; }
-    var len = Math.max(1, Math.floor(buffer.duration * sr));
-    var labels = { vocals: "vocals-only", karaoke: "karaoke", mix: "custom mix" };
-    var profile = effectiveProfile(song, buffer);
-    var strat = STRATEGY_LABELS[profile.strategy] || "default";
-    toast("Rendering " + labels[kind] + " (" + strat + ")…");
-    setExporting(true);
-    var oc;
-    try { oc = new OC(2, len, sr); }
-    catch (e) { setExporting(false); toast("Not enough memory for this export.", "error"); return; }
-    var src = oc.createBufferSource();
-    src.buffer = buffer;
-    var out = oc.createGain();
-    var pureOriginal = (kind === "mix" && mode === "original");
-    if (pureOriginal) {
-      src.connect(out);
-    } else {
-      var v = 1, i = 1;
-      if (kind === "vocals") { v = 1; i = 0; }
-      else if (kind === "karaoke") { v = 0; i = 1; }
-      else { v = effStem("v"); i = effStem("i"); }
-      var gv = oc.createGain(), gi = oc.createGain();
-      gv.gain.value = v; gi.gain.value = i;
-      buildStems(oc, src, profile, gv, gi);
-      if (v > 0) gv.connect(out);
-      if (i > 0) gi.connect(out);
-      var cp = oc.createDynamicsCompressor();
-      cp.threshold.value = -8; cp.knee.value = 12; cp.ratio.value = 6;
-      cp.attack.value = 0.004; cp.release.value = 0.18;
-      out.connect(cp); out = cp;
-    }
-    var tail = out;
-    if (eqOn) {
-      var types = ["lowshelf", "peaking", "peaking", "peaking", "highshelf"];
-      var freqs = [60, 230, 910, 3600, 14000];
-      for (var b = 0; b < 5; b++) {
-        var bf = oc.createBiquadFilter();
-        bf.type = types[b]; bf.frequency.value = freqs[b];
-        bf.Q.value = 1.0; bf.gain.value = eqGains[b] || 0;
-        tail.connect(bf); tail = bf;
+        return "ok";
       }
-    }
-    tail.connect(oc.destination);
-    try { src.start(0); } catch (e) { /* ignore */ }
-    oc.startRendering().then(function (rendered) {
-      setExporting(false);
-      var wav = encodeWAV(rendered);
-      var safe = String(song.title || "mix").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60) || "mix";
-      var suffix = kind === "vocals" ? "vocals-only" : (kind === "karaoke" ? "karaoke" : "my-mix");
-      return saveWavFile(wav, safe + " (" + suffix + ").wav").then(function () {
-        if (window.VocalPureAndroid && window.VocalPureAndroid.writeFile) {
-          toast("Saved “" + safe + " (" + suffix + ").wav” to Music/VocalPure.", "success");
-        } else {
-          toast("Export finished — check your downloads.", "success");
-        }
-      }).catch(function (e) {
-        toast("Export failed: " + (e && e.message ? e.message : "unknown"), "error");
-      });
-    }).catch(function () {
-      setExporting(false);
-      toast("Export failed — try a shorter song.", "error");
-    });
+    };
   }
 
-  /**
-   * Auto Purify: analyze a batch of songs automatically, right after
-   * import (one at a time so the UI stays responsive). The resulting
-   * profile is persisted, so every track plays with the correct
-   * strategy — and its music already removed — from the very first note.
-   */
-  var analyzing = false;
-  function autoAnalyze(ids) {
-    var todo = [];
-    for (var i = 0; i < ids.length; i++) {
-      var s = songById(ids[i]);
-      if (s && !s._profile) todo.push(s);
+  function setExportUI(running) {
+    var btn = $("exp-voice");
+    if (btn) {
+      btn.disabled = !currentSong();
+      btn.textContent = running ? "⏹ Stop & save" : "⬇ Save pure voice (.wav)";
+      btn.classList.toggle("is-recording", !!running);
     }
-    if (!todo.length || analyzing) { if (todo.length) queueAnalyze(todo); return; }
-    analyzing = true;
-    var total = todo.length, k = 0;
-    toast("Analyzing " + total + (total === 1 ? " song" : " songs") + " automatically…");
-    (function step() {
-      var s = todo[k++];
-      if (!s) {
-        analyzing = false;
-        toast("Analysis complete — music will be removed automatically.", "success");
-        renderHome(); renderSearch();
-        if (openPlaylistId) renderPlaylistSongs();
-        updateEngineLine();
-        var pending = analyzeQueue.slice(); analyzeQueue = [];
-        if (pending.length) autoAnalyze(pending);
+    var st = $("exp-status");
+    if (st && !running) st.textContent = "";
+  }
+
+  function exportProgressText() {
+    if (!exportState) return "";
+    var secs = exportState.samples / (actx ? actx.sampleRate : 48000);
+    var pct = duration > 0 ? Math.min(100, Math.round((secs / duration) * 100)) : 0;
+    return "recording " + fmtTime(secs) + (duration > 0 ? " / " + fmtTime(duration) + " · " + pct + "%" : "");
+  }
+
+  function updateExportProgress() {
+    var st = $("exp-status");
+    if (st && exportState) st.textContent = exportProgressText();
+  }
+
+  function startExport() {
+    if (exportState) { stopExport(false); return; }
+    var song = currentSong();
+    if (!song) { toast("Play a song first, then save its purified voice."); return; }
+    if (!ensureCtx()) return;
+    if (engineKind !== "ai" || !aiNode) {
+      toast("Saving the purified voice needs the AI engine, which this device does not expose.", "error");
+      return;
+    }
+    var name = exportFileName(song);
+    exportState = {
+      songId: song.id, name: name, samples: 0, parts: [], bytes: 0,
+      native: nativeWriter(name), started: Date.now(), timer: 0, paused: false
+    };
+    var head = wavHeader(actx.sampleRate, 2, 0);
+    if (exportState.native) {
+      var res = exportState.native.write(head, false);
+      if (typeof res === "string" && res.indexOf("error") === 0) {
+        exportState = null;
+        toast("Could not open the output file.", "error");
         return;
       }
-      getBuffer(s).then(function (buf) {
-        try { s._profile = analyzeBuffer(buf); idbPut(cleanRec(s)); }
-        catch (e) { /* falls back to first-play analysis */ }
-      }).catch(function () { /* retried on first play */ }).then(function () {
-        setTimeout(step, 40);
-      });
-    })();
-  }
-  var analyzeQueue = [];
-  function queueAnalyze(songs) {
-    for (var i = 0; i < songs.length; i++) analyzeQueue.push(songs[i].id);
+    } else {
+      exportState.header = head;
+    }
+    sendEngineParams();
+    updateExportProgress();
+    setExportUI(true);
+    exportState.timer = setInterval(function () {
+      updateExportProgress();
+      if (!playing && exportState && !exportState.paused) {
+        /* playback stopped (user or end of song) → wrap the file up */
+        stopExport(true);
+      }
+    }, 500);
+    toast("Recording the purified voice — the song plays in real time.", "info");
+    startAt(0);
   }
 
-  /* ============================================================
-     Import
+  function onCaptureChunk(d) {
+    if (!exportState) return;
+    var buf = d.data;
+    if (!buf) return;
+    var u8 = new Uint8Array(buf);
+    exportState.samples += (d.samples || (u8.length / 4)) | 0;
+    exportState.bytes += u8.length;
+    if (exportState.native) {
+      var res = exportState.native.write(u8, false);
+      if (typeof res === "string" && res.indexOf("error") === 0) {
+        toast("Writing the file failed: " + res.slice(6), "error");
+        stopExport(false);
+      }
+    } else {
+      exportState.parts.push(u8);
+      if (exportState.bytes > 220 * 1024 * 1024) {
+        toast("Export is getting large — saving what was recorded so far.", "info");
+        stopExport(true);
+      }
+    }
+  }
+
+  function downloadBlob(blob, filename) {
+    try {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () {
+        try { document.body.removeChild(a); } catch (e) { /* ignore */ }
+        try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
+      }, 5000);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function stopExport(automatic) {
+    if (!exportState) return;
+    var st = exportState;
+    exportState = null;
+    if (st.timer) clearInterval(st.timer);
+    try { if (aiNode) aiNode.port.postMessage({ t: "params", capture: false, flushCapture: true }); } catch (e) { /* ignore */ }
+    setExportUI(false);
+    var secs = Math.round(st.samples / (actx ? actx.sampleRate : 48000));
+    if (secs < 2) {
+      toast("Export cancelled — nothing was saved.", "error");
+      if (st.native) { try { st.native.write(new Uint8Array(0), true); } catch (e) { /* ignore */ } }
+      return;
+    }
+    if (st.native) {
+      var r = st.native.write(new Uint8Array(0), true);
+      var res = st.native.finish(st.bytes);
+      if (typeof res === "string" && res.indexOf("error") === 0) {
+        toast("Export failed: " + res.slice(6), "error");
+        return;
+      }
+      var path = (typeof r === "string" && r.indexOf("ok:") === 0) ? r.slice(3) : "";
+      toast("Saved “" + st.name + "” (" + fmtTime(secs) + ")" + (path ? " to Music/VocalPure" : "") + ".", "success");
+    } else {
+      /* the streamed header used placeholder sizes — rebuild it with the real ones */
+      var blob = new Blob([wavHeader(actx.sampleRate, 2, st.bytes)].concat(st.parts), { type: "audio/wav" });
+      if (downloadBlob(blob, st.name)) toast("Export finished — check your downloads.", "success");
+      else toast("Export failed.", "error");
+    }
+    if (automatic) updateExportProgress();
+  }
+
+/* ============================================================
+     Import — files are stored as-is (no decode, no ArrayBuffer)
      ============================================================ */
-  var MAX_FILE = 80 * 1024 * 1024;
+  var MAX_FILE = 600 * 1024 * 1024;
   function looksAudio(f) {
     if (!f) return false;
     if (f.type && f.type.indexOf("audio") === 0) return true;
@@ -1665,60 +1745,67 @@
     if (!f.type || f.type === "application/octet-stream" || f.type === "application/x-zip-compressed") return true;
     return false;
   }
-  function readAndDecode(f) {
-    return new Promise(function (res, rej) {
-      var r = new FileReader();
-      r.onload = function () {
-        var ab = r.result;
-        var realBlob = new Blob([ab], { type: f.type || "audio/mpeg" });
-        var abCopy = ab.slice(0);
-        decodeArrayBuffer(abCopy).then(function (buf) {
-          res({ buffer: buf, blob: realBlob });
-        }).catch(rej);
-      };
-      r.onerror = function () { rej(new Error("read")); };
-      try { r.readAsArrayBuffer(f); } catch (e) { rej(e); }
+
+  /* Duration from metadata only — the media element reads the header, so no
+     PCM is ever allocated for it. */
+  function probeDuration(source) {
+    return new Promise(function (resolve) {
+      var el = document.createElement("audio");
+      var url = null, done = false;
+      function finish(d) {
+        if (done) return;
+        done = true;
+        if (url) { try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ } }
+        el.removeAttribute("src");
+        resolve(isFinite(d) && d > 0 ? d : 0);
+      }
+      el.addEventListener("loadedmetadata", function () { finish(el.duration); });
+      el.addEventListener("error", function () { finish(0); });
+      try {
+        if (typeof source === "string") el.src = source;
+        else { url = URL.createObjectURL(source); el.src = url; }
+      } catch (e) { finish(0); return; }
+      setTimeout(function () { finish(el.duration); }, 6000);
     });
   }
+
   function loadFiles(files) {
     if (!files || !files.length) return;
-    if (!ensureCtx()) { toast("Audio is not supported on this device.", "error"); return; }
-    var list = [];
-    for (var i = 0; i < files.length; i++) list.push(files[i]);
-    var ok = 0, bad = 0, big = 0, idx = 0;
-    var newIds = [];
+    var list = [], i;
+    for (i = 0; i < files.length; i++) list.push(files[i]);
+    var ok = 0, bad = 0, big = 0, idx = 0, newIds = [];
     function next() {
       if (idx >= list.length) {
         renderHome(); renderSearch(); renderPlaylists(); updateCounts();
         if (ok) toast("Added " + ok + " song" + (ok === 1 ? "" : "s") + " to your library.", "success");
         if (bad) toast(bad + " file(s) skipped (not audio or unreadable).", "error");
-        if (big) toast(big + " file(s) exceeded 80 MB and were skipped.", "error");
-        if (newIds.length) autoAnalyze(newIds);
+        if (big) toast(big + " file(s) were larger than " + Math.round(MAX_FILE / (1024 * 1024)) + " MB and were skipped.", "error");
+        if (newIds.length) queueAnalysis(newIds);
         if (newIds.length && !currentId) playFromList(newIds, 0);
         return;
       }
       var f = list[idx++];
       if (!looksAudio(f)) { bad++; next(); return; }
       if (f.size > MAX_FILE) { big++; next(); return; }
-      readAndDecode(f).then(function (res) {
-        var buf = res.buffer;
-        var realBlob = res.blob;
-        var meta = parseName(f.name);
-        var rec = {
-          id: uid(), title: meta.title, artist: meta.artist, name: f.name,
-          duration: buf ? buf.duration : 0, blob: realBlob, favorite: false, dateAdded: Date.now(),
-          _buffer: buf || null, _profile: null, path: null, size: f.size || (realBlob ? realBlob.size : 0)
-        };
-        library.push(rec);
-        idbPut(cleanRec(rec));
-        newIds.push(rec.id);
-        ok++;
-        next();
-      }).catch(function () { bad++; next(); });
+      var meta = parseName(f.name);
+      var rec = {
+        id: uid(), title: meta.title, artist: meta.artist, name: f.name,
+        duration: 0, blob: f, favorite: false, dateAdded: Date.now(),
+        size: f.size || 0, path: null, _profile: null
+      };
+      library.push(rec);
+      idbPut(cleanRec(rec));
+      idbPutFile(rec.id, f);
+      newIds.push(rec.id);
+      ok++;
+      renderHome(); renderSearch(); updateCounts();
+      probeDuration(f).then(function (d) {
+        if (d > 0) { rec.duration = d; idbPut(cleanRec(rec)); renderHome(); renderSearch(); }
+        setTimeout(next, 20);
+      });
     }
     next();
   }
-
   /* ============================================================
      Screens / navigation
      ============================================================ */
@@ -1826,11 +1913,10 @@
             duration: item.duration || 0,
             blob: null,
             path: item.path,
-            size: item.size || 0,
             favorite: false,
             dateAdded: Date.now(),
-            _buffer: null,
-            _profile: null
+            _profile: null,
+            size: item.size || 0
           };
           library.push(rec);
           idbPut(cleanRec(rec));
@@ -1847,7 +1933,7 @@
 
         if (addedCount > 0) {
           toast("Found & added " + addedCount + " music track" + (addedCount === 1 ? "" : "s") + " from your phone!", "success");
-          if (newIds.length) autoAnalyze(newIds);
+          if (newIds.length) queueAnalysis(newIds);
           if (!currentId && newIds.length > 0) {
             playFromList(newIds, 0);
           }
@@ -2264,26 +2350,21 @@
     toast("Playlist deleted.");
   });
 
-  /* settings */
-  on($("set-autopurify"), "click", function () {
-    autoPurify = !autoPurify;
-    updateAutoUI();
-    saveSettings();
-    if (autoPurify) {
-      if (buffer && mode !== "vocals") {
-        if (mode === "custom") { customMem.v = stemV; customMem.i = stemI; }
-        mode = "vocals"; stemV = 100; stemI = 0;
-        for (var k = 0; k < modeBtns.length; k++) {
-          modeBtns[k].classList.toggle("is-active", modeBtns[k].getAttribute("data-mode") === "vocals");
-        }
-        updateStemUI(); updateNp();
-        if (playing) startAt(currentPos()); else applyStemGains();
-        updateEngineLine();
-      }
-      toast("Auto purify on — music is removed automatically.", "success");
-    } else {
-      toast("Auto purify off — songs play untouched until you pick a mode.");
-    }
+  /* settings — AI engine */
+  on($("set-ai-strength"), "change", function () { setAIStrength($("set-ai-strength").value); });
+  on($("set-ai-boost"), "input", function () { setAIBoost($("set-ai-boost").value); });
+  on($("set-ai-denoise"), "click", function () { setAIDenoise(!aiDenoise); });
+  on($("btn-ai-relearn"), "click", function () {
+    var s = currentSong();
+    if (!s) { toast("Play a song first, then let the AI learn it again."); return; }
+    s._profile = null;
+    resetLive(s);
+    idbPut(cleanRec(s));
+    if (aiNode) { try { aiNode.port.postMessage({ t: "params", reset: true }); } catch (e) { /* ignore */ } }
+    sendEngineParams();
+    renderHome(); renderSearch();
+    updateEngineLine();
+    toast("AI learning restarted for this song.", "success");
   });
   on($("set-volume"), "input", function () {
     volume = Number($("set-volume").value) || 0;
@@ -2292,13 +2373,8 @@
     saveSettings();
   });
   on($("set-rate"), "change", function () {
-    var r = Number($("set-rate").value) || 1;
-    if (playing && buffer) { offsetBase = currentPos(); startCtxTime = actx.currentTime; }
-    playbackRate = r;
-    if (source) {
-      try { source.playbackRate.setTargetAtTime(r, actx.currentTime, 0.02); }
-      catch (e) { try { source.playbackRate.value = r; } catch (e2) { /* ignore */ } }
-    }
+    playbackRate = Number($("set-rate").value) || 1;
+    if (audioEl) { try { audioEl.playbackRate = playbackRate; } catch (e) { /* ignore */ } }
     saveSettings();
   });
   on($("set-sleep"), "change", function () {
@@ -2316,8 +2392,8 @@
     var okc = false;
     try { okc = confirm("Remove ALL " + library.length + " songs from this device?"); } catch (e) { okc = false; }
     if (!okc) return;
-    stopPlayback();
-    buffer = null; currentId = null; duration = 0; offsetBase = 0;
+    unloadCurrent();
+    currentId = null;
     queue = []; qi = -1;
     library.forEach(function (s) { idbDel(s.id); });
     library = [];
@@ -2372,7 +2448,7 @@
       seekTo((e.clientX - rect.left) / rect.width);
     });
     prog.addEventListener("keydown", function (e) {
-      if (!buffer || duration <= 0) return;
+      if (!loaded || duration <= 0) return;
       if (e.key === "ArrowRight") { e.preventDefault(); seekTo((currentPos() + 5) / duration); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); seekTo((currentPos() - 5) / duration); }
       else if (e.key === "Home") { e.preventDefault(); seekTo(0); }
@@ -2396,36 +2472,15 @@
     });
   });
 
-  /* modes */
-  modeBtns.forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var m = btn.getAttribute("data-mode");
-      if (m === mode) return;
-      if (!buffer) { toast("Play a song first."); return; }
-      setMode(m, { fromButton: true });
-    });
+  /* AI engine controls (strength / voice boost / music-only silence) */
+  document.querySelectorAll(".ai-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () { setAIStrength(btn.getAttribute("data-ai")); });
   });
+  on($("np-voice-boost"), "input", function () { setAIBoost($("np-voice-boost").value); });
+  on($("np-denoise"), "click", function () { setAIDenoise(!aiDenoise); });
 
-  /* stems */
-  on($("stem-vocal"), "input", function () {
-    stemV = Number($("stem-vocal").value) || 0;
-    ensureCustomMix();
-    updateStemUI(); applyStemGains(); saveSettings();
-  });
-  on($("stem-music"), "input", function () {
-    stemI = Number($("stem-music").value) || 0;
-    ensureCustomMix();
-    updateStemUI(); applyStemGains(); saveSettings();
-  });
-  on($("mute-vocal"), "click", function () { muteV = !muteV; ensureCustomMix(); updateStemUI(); applyStemGains(); });
-  on($("mute-music"), "click", function () { muteI = !muteI; ensureCustomMix(); updateStemUI(); applyStemGains(); });
-  on($("solo-vocal"), "click", function () { soloV = !soloV; ensureCustomMix(); updateStemUI(); applyStemGains(); });
-  on($("solo-music"), "click", function () { soloI = !soloI; ensureCustomMix(); updateStemUI(); applyStemGains(); });
-
-  /* export */
-  on($("exp-vocals"), "click", function () { renderExport("vocals"); });
-  on($("exp-karaoke"), "click", function () { renderExport("karaoke"); });
-  on($("exp-mix"), "click", function () { renderExport("mix"); });
+  /* export: record the purified voice while the song plays */
+  on($("exp-voice"), "click", startExport);
 
   /* eq */
   for (var eb = 0; eb < 5; eb++) {
@@ -2501,9 +2556,6 @@
   document.addEventListener("click", unlockAudio, true);
   document.addEventListener("touchstart", unlockAudio, true);
 
-  /* ============================================================
-     Init
-     ============================================================ */
   function init() {
     /* appearance first so the saved theme paints before anything else */
     applyAppTheme();
@@ -2512,15 +2564,14 @@
     loadSettings();
     volume = settings.volume;
     playbackRate = settings.rate || 1;
-    stemV = settings.stemV; stemI = settings.stemI;
-    customMem.v = settings.customV; customMem.i = settings.customI;
-    eqGains = settings.eq.slice(); eqOn = !!settings.eqOn;
+    aiStrength = settings.aiStrength;
+    aiBoostDb = settings.aiBoost;
+    aiDenoise = settings.aiDenoise;
+    eqGains = settings.eq.slice();
+    eqOn = !!settings.eqOn;
     eqPresetName = settings.eqPreset || "normal";
-    shuffle = !!settings.shuffle; repeatMode = settings.repeat || "off";
-    autoPurify = settings.autoPurify !== false;
-    /* Auto Purify: the app launches straight into vocals-only (music removed) */
-    if (autoPurify) { mode = "vocals"; stemV = 100; stemI = 0; }
-    syncModeButtons();
+    shuffle = !!settings.shuffle;
+    repeatMode = settings.repeat || "off";
 
     $("set-volume").value = String(volume);
     syncVolumeUI();
@@ -2530,8 +2581,8 @@
     $("btn-repeat").classList.toggle("is-active", repeatMode !== "off");
     $("btn-repeat").setAttribute("aria-pressed", repeatMode !== "off" ? "true" : "false");
     updateEqUI();
-    updateStemUI();
-    updateAutoUI();
+    updateAIUI();
+    setExportUI(false);
 
     /* version + changelog: native bridge first, bundled app-info.json as
        fallback (fetch, then XHR for older WebViews) */
@@ -2539,7 +2590,8 @@
     function applyVersion(txt) {
       if (versionSet) return;
       versionSet = true;
-      $("set-version").textContent = txt;
+      var el = $("set-version");
+      if (el) el.textContent = txt;
     }
     if (window.VocalPureAndroid && window.VocalPureAndroid.appInfo) {
       try {
@@ -2596,27 +2648,34 @@
     sizeViz();
     drawIdleViz(0);
 
+    /* Build the audio graph right away so the AI engine is warm before the
+       first tap (streaming, so this allocates a few buffers, nothing else). */
+    try { ensureCtx(); } catch (e) { /* ignore */ }
+    updateEngineLine();
+
     idbAll().then(function (recs) {
       library = (recs || []).map(function (r) {
         return {
           id: r.id, title: r.title || "Unknown", artist: r.artist || "Unknown artist",
           name: r.name || r.title || "Unknown", duration: r.duration || 0,
-          blob: r.blob || null, favorite: !!r.favorite, dateAdded: r.dateAdded || 0,
-          _buffer: null, _profile: r.profile || null,
-          path: r.path || null, size: r.size || 0
+          blob: null, favorite: !!r.favorite, dateAdded: r.dateAdded || 0,
+          _profile: r.profile || null, path: r.path || null, size: r.size || 0
         };
       }).filter(function (r) { return r.id; });
       renderHome(); renderSearch(); renderPlaylists(); updateCounts();
       updatePermissionUI();
       if (library.length) {
         toast("Restored " + library.length + " song" + (library.length === 1 ? "" : "s") + " from your library.", "success");
+        /* songs imported before this version may still be missing a profile */
+        var pending = library.filter(function (s) { return !s._profile; }).map(function (s) { return s.id; });
+        if (pending.length) setTimeout(function () { queueAnalysis(pending); }, 1500);
       }
     }).catch(function () { idbFailed = true; });
 
     updatePermissionUI();
     if (window.VocalPureAndroid && window.VocalPureAndroid.hasStoragePermission) {
       var granted = false;
-      try { granted = window.VocalPureAndroid.hasStoragePermission(); } catch (e) {}
+      try { granted = window.VocalPureAndroid.hasStoragePermission(); } catch (e) { granted = false; }
       if (granted) {
         setTimeout(function () {
           if (!library.length) scanDeviceMusic();
@@ -2653,6 +2712,9 @@
         line.hidden = true;
       }
     }, 1000);
+
+    /* a seek/an unload during an export must not leave a half file behind */
+    window.addEventListener("beforeunload", function () { if (exportState) stopExport(true); });
   }
 
   init();

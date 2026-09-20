@@ -6,11 +6,12 @@ fully separate from the download website.
 
 Everything works offline on your device:
   · add songs from your phone (top-right ＋ button),
-  · AUTO PURIFY — each song is analyzed automatically the moment you
-    import it, and its music (instruments) is removed automatically on
-    playback: only the pure voice plays. Switch to Original / Karaoke /
-    My mix any time, or turn the automation off in Settings,
-  · the engine shows its strategy and an estimated clarity ring on the
-    Now Playing screen,
-  · export vocals-only / karaoke / custom mixes as WAV files, saved
-    to Music/VocalPure on your device.
+  · AI VOICE ENGINE — always on. The engine analyzes every song while it
+    plays and removes the music live, so only the voice is heard. There is
+    no music mode, no stem mixer and no music level anywhere in the app,
+  · songs are streamed, never decoded into memory, so long recordings no
+    longer crash the player,
+  · the Now Playing screen shows the live AI panel: voice activity, how
+    many dB of music were cut, the tracked pitch and the latency,
+  · save the purified voice as a WAV file while it plays, written to
+    Music/VocalPure on your device.

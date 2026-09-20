@@ -1,8 +1,9 @@
 # VocalPure — Download site + standalone Android music player
 
 VocalPure is an Android music player whose exclusive advantage is that it
-**splits every song into two tracks**: 🎤 **Vocals** (lyrics) and 🎶
-**Music** (instruments) — in real time, on device, offline.
+**removes the music automatically**: an on-device AI engine isolates the
+voice of every song while it streams, so the listener only ever hears the
+words — in real time, on device, offline, with no mode to choose.
 
 The project has two completely separate parts:
 
@@ -13,18 +14,25 @@ The project has two completely separate parts:
    demo music** — everything playable lives in the app.
 2. **The Android app** (`app/` → built into `downloads/*.apk`) — a
    **standalone music player** with its own UI, identity and feature set.
-   It does **not** bundle the website: only the four `app/` files go into
-   the APK.
+   It does **not** bundle the website: only the `app/` files go into the
+   APK.
 
 ## The app — features
 
-- **Auto purify** — every song is analyzed automatically the moment it is
-  imported (real on-device FFT, whole import batched in the background), and
-  its music (instruments) is **removed automatically** on playback: pure
-  vocals with zero taps. A Settings switch turns the automation off, and the
-  four modes (Original / Vocals / Karaoke / My mix) always win per track.
-- **Clarity ring** — the Now Playing screen shows the engine's strategy and
-  an estimated clarity score live per song.
+- **AI voice engine (always on)** — there is exactly one playback path:
+  the AI. No mode selector, no stem mixer, no music fader and no karaoke
+  export exist anywhere in the app; the listener hears the isolated voice,
+  never the instruments.
+- **Streamed playback (no more crashes on big files)** — songs are piped
+  into the engine through a media element (`blob:` for imported files, the
+  Android streaming bridge with real HTTP **range** support for phone-library
+  files). Nothing is ever decoded into an `AudioBuffer`, so a two-hour
+  recording behaves exactly like a three-minute single. The old engine's
+  whole-file `decodeAudioData` + Base64 path — the source of the crash — is
+  gone.
+- **Live AI panel** — the Now Playing screen shows voice activity, how many
+  dB of music were cut, the pitch the engine locked onto, its state and its
+  processing latency, updating live while the song plays.
 - **Library** — import multiple songs at once (file picker, drag & drop),
   auto-parsed “Artist – Title” names, generated covers, duration, sort by
   title/artist/date, remove. Library (audio included) stored in IndexedDB,
@@ -35,15 +43,16 @@ The project has two completely separate parts:
 - **Search** — instant title/artist filter with match count.
 - **Playlists & favorites** — create/rename/delete playlists, star
   favorites; all persisted on-device. **Queue** — live “Up next” list.
-- **Vocal / music splitter (4 modes)** — *Original / 🎤 Vocals only /
-  🎶 Karaoke / 🎚 My mix* with independent stem faders, per-stem **mute**
-  and **solo**.
+- **Separation controls (voice only)** — four strength presets
+  (Soft / Balanced / Strong / Max), a voice-boost make-up gain and a
+  “silence the music-only parts” gate. None of them can bring the music back.
 - **5-band equalizer** — 60 Hz – 14 kHz with presets (Flat, Pop, Rock,
   Jazz, Bass Boost, Vocal Boost, …).
-- **WAV export** — render vocals-only, karaoke or your custom mix to
-  `.wav`. In the app the file is written straight to the phone
-  (`…/Android/data/com.vocalpure.app/files/Music/VocalPure/`) via a native
-  bridge — no download-page round trip.
+- **WAV export** — the purified voice is **captured from the engine while
+  the song plays** and streamed to disk in 1.5 MB chunks (native
+  `writeFile(name, base64Chunk, finalChunk)` + `finishWav()` header patch),
+  so export memory stays flat no matter how long the track is. Chrome/desktop
+  falls back to a blob download.
 - **In-app updates** — the app compares its installed version against the
   published `app-info.json` (auto-check on launch + every 30 min + a manual
   **Check** button in Settings) and shows an update banner with one-tap
@@ -57,7 +66,7 @@ The project has two completely separate parts:
 
 ## The website — features
 
-- **Download center** — stable + beta APK cards, live metadata from
+- **Download center** — stable + mirror APK cards, live metadata from
   `app-info.json`, SHA-256 display, copy-link button, install guide,
   requirements and changelog, QR code pointing at the APK URL.
 - **Live updates for every visitor** — the page re-checks
@@ -85,7 +94,8 @@ The project has two completely separate parts:
 ├── app/                    # the STANDALONE app (what the APK contains)
 │   ├── index.html          # player shell: library/search/playlists/settings
 │   ├── style.css           # its own UI theme (warm amber/coral)
-│   ├── app.js              # player + adaptive vocal-isolation engine
+│   ├── app.js              # player: streaming transport, library, AI panel
+│   ├── vp-ai-engine.js     # the AI voice engine (AudioWorklet, engine v6)
 │   └── app-info.json       # in-APK version/changelog fallback
 ├── android/                # APK build pipeline (no Android SDK needed)
 │   ├── build_apk.py        # aapt2 → javac/dx → zip → v1+v2+v3 signing
@@ -93,10 +103,14 @@ The project has two completely separate parts:
 │   ├── bootstrap_tools.sh  # fetches/compiles the toolchain (see BUILDING.md)
 │   ├── sync_assets.sh      # bundles app/ (only!) into assets/www
 │   └── keystore/           # release signing key (intentionally committed)
+├── tools/                  # verification harnesses (not shipped)
+│   ├── verify_app.js       # static checks: syntax, DOM contract, metadata
+│   ├── test_ai_engine.js   # DSP harness: runs the real worklet in Node
+│   └── smoke_app.js        # jsdom functional test + undeclared-symbol scan
 └── downloads/
-    ├── VocalPure-v2.8.0.apk        # signed stable app (Android 8.0+) — auto purify
-    ├── VocalPure-v2.7.0.apk        # previous stable (kept for reference)
-    └── VocalPure-v2.8.0-beta.1.apk # signed beta build
+    ├── VocalPure-v2.9.0.apk        # signed stable app (Android 8.0+) — AI voice engine
+    ├── VocalPure-v2.8.0.apk        # previous stable (kept for reference)
+    └── VocalPure-v2.7.0.apk        # older stable (kept for reference)
 ```
 
 ## Run the website locally
@@ -115,9 +129,9 @@ The app can also be opened directly in a desktop browser for testing:
 ```bash
 export VP_TOOLS=$HOME/.vp-tools VP_JAVA=$(python3 -c 'import jdk4py; print(jdk4py.JAVA)')
 ./android/sync_assets.sh
-python3 android/build_apk.py --version-name 2.8.0 --version-code 280 \
-    --out downloads/VocalPure-v2.8.0.apk
-python3 android/verify_apk.py downloads/*.apk
+python3 android/build_apk.py --version-name 2.9.0 --version-code 290 \
+    --out downloads/VocalPure-v2.9.0.apk
+python3 android/verify_apk.py downloads/VocalPure-v2.9.0.apk
 ```
 
 One-time toolchain setup (`pip install jdk4py`, then
@@ -129,51 +143,85 @@ bunds its own `app-info.json` (used by the app as a version fallback when
 the native bridge is unavailable), while the in-app version labels come
 from the native `AppBridge.appInfo()`.
 
-## Vocal isolation — adaptive engine
+## The AI voice engine (engine v6)
 
-With **auto purify** (on by default) the analysis runs automatically for the
-whole import — in the background, one song at a time — and the music stem is
-muted automatically on playback, so only the voice plays. Switching modes or
-turning the switch off restores full manual control.
+Playback has exactly one route and one destination — the isolated voice:
 
-Each imported song is analyzed offline with an on-device FFT (radix-2,
-1024 samples, up to a 6-second window at a random offset) that measures:
+```
+<audio> (stream) → MediaElementSource → AI worklet → voice boost
+                → compressor → 5-band EQ → master → speakers
+```
 
-- **centerRatio** — how much of the vocal band (170 Hz–4.3 kHz) energy
-  sits in the center channel, and
-- **bandFocus** — how much of the whole track's energy lives in that band.
+`app/vp-ai-engine.js` registers an `AudioWorkletProcessor` (`"vp-ai-voice"`)
+that is built from the factory's own source through a `blob:` URL, so it
+loads inside the Android WebView from `file://` without a second fetch.
+Every 256-sample hop (~5.3 ms) it runs a 1024-point STFT (75 % overlap) and
+computes, per frequency bin, a soft mask from several independent cues:
 
-The strongest strategy is then selected **per song**:
+- **online voice/music profiles** — two non-negative spectral bases updated
+  multiplicative-per-frame (voice bases learn only from frames the
+  modulation gate accepts, so a sustained pad cannot poison the voice
+  model); this is the “learning” part — the engine adapts to *this* singer
+  on *this* device while the track plays;
+- **centre-channel coherence** — vocals are usually centre-locked, measured
+  as mid/side coherence per bin (auto-detected mono tracks switch to a
+  spectral-only mask);
+- **pitch/harmonic tracking** — band-passed (175 Hz–3.4 kHz) decimated
+  autocorrelation finds F0 in 65–480 Hz; bins near harmonics of F0 get a
+  comb bonus;
+- **syllabic modulation** — `|fast − slow| / slow` per bin, which separates
+  speech-rate energy from sustained instrumentals;
+- **band prior** — steep roll-off below ~90 Hz and above ~9 kHz, where the
+  voice carries almost nothing;
+- a **VAD** (periodicity + spatial + band focus) that drives a gate so
+  music-only sections fall to silence instead of leaking.
 
-| Strategy | When | How |
-|---|---|---|
-| **Center extraction** | centerRatio ≥ 0.62 | Vocals = band-shaped mid (3 sub-bands, presence boost +2.5 dB @ 2.7 kHz); Music = side signal + low-passed mid so bass/kick survive. |
-| **Center blend** | centerRatio ≥ 0.40 | Same chains, but vocals add a low-passed side return and music adds a center return with a vocal-band dip — smoother when the vocal isn't perfectly center-locked. |
-| **Frequency focus** | mono or low center ratio | Vocals = band-pass 170 Hz–4.3 kHz with presence tilt; Music = band-reject of the same window with a high-shelf lift and a deeper mono notch. |
+The cues are combined in a logit, squashed by a per-preset steepness, gated,
+smoothed (3-tap + AR) and floored by the strength preset
+(Soft/Balanced/Strong/Max → floor 0.10/0.055/0.030/0.015). The mask is
+applied to both channels, the frame is re-packed, inverse-transformed and
+overlap-added; added latency is one FFT frame (≈21 ms at 48 kHz).
 
-Every track therefore gets real, signal-adaptive isolation — nothing is
-a no-op — and the engine reports its pick + estimated clarity in the
-now-playing screen (“Strategy: center extraction · 81% of the vocal band
-is center-locked · est. clarity 80%”). Stems are mixed live, then
-compressed/limited with makeup gain and run through the 5-band EQ.
-Export renders the exact same chain in an `OfflineAudioContext` to
-16-bit PCM WAV.
+Live metrics (voice ratio, music-cut dB, F0, clarity, latency) are posted to
+the app ~4×/second — that is what the AI panel displays, and the app turns
+the metrics into a per-song profile after ~4 s of playback (stored in
+IndexedDB, shown as “✓ AI” in the list).
 
-> Note: this is spectral/channel-based isolation, not a deep-learning
-> stem model — so results are best on mixed stereo recordings, as
-> described. Use only on music you own or have the right to remix.
+**Fallback**: WebViews without `AudioWorklet` get a real-time filter chain
+(mono fold + 145 Hz high-pass + presence shaping) — still voice-only, just
+without the adaptive spectral model.
+
+> Note: this is an adaptive spectral-masking separator with online learning,
+> not a deep-learning stem model (no weights are downloaded; the APK stays
+> ~0.1 MB). Use it only on music you own or have the right to remix.
 
 ## Checks run on this repo
 
-- `node --check` on all four JS bundles (site ×2, app ×2).
-- HTML tag-balance validation + every `getElementById` target verified
-  present in both the site and the app.
-- Every local `href`/`src` reference verified to exist on disk.
-- Headless DOM tests (jsdom, `/.apptest` harness): app — import, play,
-  FFT analysis, all four modes, stem mixer, EQ, search, playlists,
-  favorites, transport, settings, export, delete (42 checks); site —
-  metadata filling, download links, no-player assertions (15 checks).
-- APKs verified with `android/verify_apk.py` (v2/v3 digests + RSA
-  signatures + certificate match) **and** androguard (v1+v2+v3 present,
-  manifest fields, bundled-asset listing — no website content inside);
-  SHA-256 on disk matches `app-info.json`.
+```bash
+node tools/verify_app.js      # static: syntax, DOM contract, assets, metadata
+node tools/test_ai_engine.js  # runs the real worklet source in Node (16 checks)
+node tools/smoke_app.js       # jsdom functional test + undeclared-symbol scan
+# first time only: npm --prefix tools install
+```
+
+- **`verify_app.js`** — all JS parses, HTML tag balance, every `$("id")` the
+  app uses exists in `app/index.html`, every local `href`/`src` exists, no
+  music/stem control is left in the app, the engine exposes its presets, the
+  worklet source compiles, and `app-info.json` size + SHA-256 match the APK
+  actually in `downloads/` (bundled `app/app-info.json` version too).
+- **`test_ai_engine.js`** — a Node `vm` shim that runs the *real* worklet
+  code and asserts the DSP contract: bit-transparent bypass (8.5e-8), music
+  removed (−30.5 dB music-only, −21 dB bass, −13 dB hats, silence-only
+  intro), voice kept (−2.9 dB), voice/music SNR improved by +6.4 dB, mono
+  handling, >8× realtime, and 16-bit PCM capture streaming.
+- **`smoke_app.js`** — boots the real app inside jsdom with mocked Web Audio,
+  IndexedDB and the Android bridge, then drives it: device scan, streamed
+  playback (`blob:` and `vocalpure.local/audio?path=` sources), worklet
+  creation + params, live meters, strength/boost/denoise controls, transport,
+  search, playlists, EQ, themes, import, oversized-file rejection, capture
+  export and library clearing — plus a scope analysis that fails on any
+  symbol used but never declared.
+- APKs verified with `android/verify_apk.py` (v2/v3 digests + RSA signatures
+  + certificate match) **and** androguard (v1+v2+v3 present, manifest fields,
+  bundled-asset listing — no website content inside); the file on disk
+  matches `app-info.json`.

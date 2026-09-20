@@ -61,12 +61,12 @@
 
         <div class="home-hero" id="home-hero">
           <div class="home-hero-copy">
-            <p class="home-kicker">VocalPure · Auto Engine</p>
-            <h1>Import songs.<br /><em>Music removed</em> automatically.</h1>
-            <p class="home-sub">Every track is analyzed on-device the moment you add it — the instruments are stripped away and only the pure voice plays. Zero taps.</p>
+            <p class="home-kicker">VocalPure · AI voice engine</p>
+            <h1>Import songs.<br /><em>Only the voice</em> plays.</h1>
+            <p class="home-sub">The AI engine listens to every track while it streams, isolates the voice and removes the music — automatically, on your phone, offline. Big files are safe: songs are streamed, never decoded into memory.</p>
             <p class="auto-pill" id="auto-pill">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
-              Auto analyze · auto music removal
+              AI isolation · always on · no music option
             </p>
           </div>
           <div class="hero-actions">
@@ -202,16 +202,35 @@
         </div>
 
         <div class="set-group">
-          <h3>Auto purify</h3>
+          <h3>AI voice engine</h3>
           <div class="set-row">
-            <span class="set-label">Auto purify<small class="set-sub">Analyze every song &amp; remove its music automatically</small></span>
-            <button type="button" class="switch is-on" id="set-autopurify" role="switch" aria-checked="true" aria-label="Auto purify on or off"><i></i></button>
+            <span class="set-label">Engine<small class="set-sub" id="set-ai-status">Starting…</small></span>
+            <button type="button" class="ghost-btn sm" id="btn-ai-relearn">Re-learn song</button>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Separation strength</span>
+            <select id="set-ai-strength" aria-label="AI separation strength">
+              <option value="soft">Soft</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="strong">Strong</option>
+              <option value="max">Max</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Voice boost</span>
+            <input type="range" id="set-ai-boost" min="0" max="18" value="6" aria-label="Voice boost" />
+            <b class="set-val" id="set-ai-boost-val">+6 dB</b>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Silence music-only parts<small class="set-sub">No music at all in instrumental sections</small></span>
+            <button type="button" class="switch is-on" id="set-ai-denoise" role="switch" aria-checked="true" aria-label="Silence music-only parts"><i></i></button>
           </div>
           <p class="set-note">
-            Songs are analyzed with a real FFT <b>the moment you import them</b> — nothing is
-            uploaded. With Auto purify on, playback starts with the music track already
-            removed, so <b>only the pure voice plays</b>. You can still switch to Original,
-            Karaoke or My mix at any time; the automation applies again on the next song.
+            The engine runs on the phone, offline, while the song streams: it learns the voice of
+            the track you are playing (adaptive spectral profile), and uses the centre channel, the
+            detected pitch and the syllabic rhythm of speech as evidence, then attenuates everything
+            else. Songs are also probed the moment they are imported (a few seconds of audio — never
+            a full decode) so the very first notes are already clean.
           </p>
         </div>
 
@@ -293,16 +312,6 @@
         </div>
 
         <div class="set-group">
-          <h3>Isolation engine</h3>
-          <p class="set-note">
-            For each song the engine measures how much of the mix sits in the center channel
-            and picks the strongest strategy automatically — <b>center extraction</b> for
-            standard stereo masters, a <b>soft blend</b> for wide mixes, or <b>frequency
-            focus</b> for mono files. The estimated clarity is shown on the player screen.
-          </p>
-        </div>
-
-        <div class="set-group">
           <h3>About</h3>
           <div class="set-row">
             <span class="set-label">Version</span>
@@ -355,7 +364,7 @@
         <button type="button" class="tb-icon" id="np-back" aria-label="Close player">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-        <div class="np-header-title"><span>Now playing</span><em id="np-mode-chip">Original</em></div>
+        <div class="np-header-title"><span>Now playing</span><em id="np-mode-chip">🎤 pure voice · AI</em></div>
         <button type="button" class="tb-icon" id="np-fav" aria-label="Toggle favorite">
           <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20.3l-7.1-4.3a2.4 2.4 0 01-.7-4.2L6.6 8.6 11 6.2a1.2 1.2 0 012 0l4.4 3.4 2.4 3.2a2.4 2.4 0 01-.7 4.2z"/></svg>
         </button>
@@ -371,11 +380,28 @@
           <p id="np-artist">Add songs to get started</p>
         </div>
 
-        <div class="np-engine" id="np-engine-card">
-          <div class="clarity-ring" id="np-clarity-ring" aria-hidden="true"><span id="np-clarity-num">–</span></div>
+        <div class="np-engine np-ai-card" id="np-engine-card">
+          <div class="ai-orb" aria-hidden="true"><span>AI</span><i></i></div>
           <div class="np-engine-meta">
-            <b id="np-strategy">Auto purify engine</b>
-            <span id="np-strategy-detail">Add songs — they are analyzed automatically, then their music is removed.</span>
+            <b id="np-strategy">AI voice isolation</b>
+            <span id="np-strategy-detail">Add a song — the AI analyzes it while it plays and removes the music.</span>
+            <div class="ai-meters">
+              <div class="ai-meter">
+                <span class="ai-meter-name">Voice</span>
+                <i class="ai-meter-track"><b class="ai-meter-fill" id="np-meter-voice"></b></i>
+                <em id="np-voice-val">0%</em>
+              </div>
+              <div class="ai-meter">
+                <span class="ai-meter-name">Music cut</span>
+                <i class="ai-meter-track"><b class="ai-meter-fill ai-meter-fill-cut" id="np-meter-cut"></b></i>
+                <em id="np-cut-val">0 dB</em>
+              </div>
+            </div>
+            <div class="ai-subline">
+              <span id="np-ai-state">starting…</span>
+              <span>latency <b id="np-ai-latency">–</b></span>
+              <span>pitch <b id="np-ai-pitch">–</b></span>
+            </div>
           </div>
         </div>
 
@@ -412,42 +438,30 @@
           </div>
 
           <div id="panel-sound" class="np-panel" role="tabpanel">
-            <div class="mode-row" role="group" aria-label="Isolation mode">
-              <button type="button" class="mode-btn" data-mode="original">Original</button>
-              <button type="button" class="mode-btn is-active" data-mode="vocals">🎤 Vocals</button>
-              <button type="button" class="mode-btn" data-mode="karaoke">🎶 Karaoke</button>
-              <button type="button" class="mode-btn" data-mode="custom">🎚 My mix</button>
+            <p class="pure-banner" id="pure-banner">
+              <b>Pure voice mode.</b> The AI removes the music live from the stream — VocalPure has
+              no music mode, no stem mixer and no music level.
+            </p>
+            <div class="ai-strength-row" role="group" aria-label="AI separation strength">
+              <button type="button" class="ai-btn" data-ai="soft" aria-pressed="false">Soft</button>
+              <button type="button" class="ai-btn is-active" data-ai="balanced" aria-pressed="true">Balanced</button>
+              <button type="button" class="ai-btn" data-ai="strong" aria-pressed="false">Strong</button>
+              <button type="button" class="ai-btn" data-ai="max" aria-pressed="false">Max</button>
             </div>
-            <p class="engine-line" id="engine-line">Every song is analyzed automatically on import — the engine picks the strongest strategy per track.</p>
-            <div class="stem-row">
-              <div class="stem-card" id="card-vocal">
-                <div class="stem-head">
-                  <span class="stem-name">🎤 Vocals</span>
-                  <span class="stem-chips">
-                    <button type="button" class="chip" id="solo-vocal" aria-label="Solo vocals" title="Solo">S</button>
-                    <button type="button" class="chip" id="mute-vocal" aria-label="Mute vocals" title="Mute">M</button>
-                  </span>
-                </div>
-                <input type="range" id="stem-vocal" min="0" max="100" value="100" aria-label="Vocal level" />
-                <b class="stem-val" id="stem-vocal-val">100%</b>
-              </div>
-              <div class="stem-card stem-muted" id="card-music">
-                <div class="stem-head">
-                  <span class="stem-name">🎶 Music</span>
-                  <span class="stem-chips">
-                    <button type="button" class="chip" id="solo-music" aria-label="Solo music" title="Solo">S</button>
-                    <button type="button" class="chip" id="mute-music" aria-label="Mute music" title="Mute">M</button>
-                  </span>
-                </div>
-                <input type="range" id="stem-music" min="0" max="100" value="0" aria-label="Music level" />
-                <b class="stem-val" id="stem-music-val">0%</b>
-              </div>
+            <p class="engine-line" id="engine-line">Starting the on-device AI engine…</p>
+            <div class="set-row">
+              <span class="set-label">Voice boost<small class="set-sub">Make-up gain for the isolated voice</small></span>
+              <input type="range" id="np-voice-boost" min="0" max="18" value="6" aria-label="Voice boost" />
+              <b class="set-val" id="np-voice-boost-val">+6 dB</b>
+            </div>
+            <div class="set-row">
+              <span class="set-label">Silence music-only parts<small class="set-sub">Instrumental sections go quiet instead of leaking</small></span>
+              <button type="button" class="switch is-on" id="np-denoise" role="switch" aria-checked="true" aria-label="Silence music-only parts"><i></i></button>
             </div>
             <div class="export-row">
-              <button type="button" class="ghost-btn sm" id="exp-vocals">⬇ Vocals .wav</button>
-              <button type="button" class="ghost-btn sm" id="exp-karaoke">⬇ Karaoke .wav</button>
-              <button type="button" class="ghost-btn sm" id="exp-mix">⬇ My mix .wav</button>
+              <button type="button" class="ghost-btn sm" id="exp-voice">⬇ Save pure voice (.wav)</button>
             </div>
+            <p class="exp-status" id="exp-status"></p>
           </div>
 
           <div id="panel-eq" class="np-panel" role="tabpanel" hidden>
@@ -502,6 +516,7 @@
     <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
   </div>
 
+  <script src="vp-ai-engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

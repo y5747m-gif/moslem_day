@@ -33,7 +33,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -134,25 +136,46 @@ public class MainActivity extends Activity {
         s.setSupportZoom(false);
 
         web.setWebViewClient(new WebViewClient() {
+            /**
+             * Streams device audio into the WebView so the player can seek and
+             * play huge files without copying them into JavaScript memory.
+             *
+             * Range requests are honoured (206 + Content-Range) — the HTML media
+             * element asks for byte ranges constantly when it seeks, and the AI
+             * engine only ever needs the stream, never the whole file.
+             */
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 if (request != null && request.getUrl() != null) {
                     Uri reqUri = request.getUrl();
                     if ("vocalpure.local".equalsIgnoreCase(reqUri.getHost()) && "/audio".equals(reqUri.getPath())) {
+                        String method = request.getMethod();
+                        if ("OPTIONS".equalsIgnoreCase(method)) {
+                            return new WebResourceResponse("text/plain", "UTF-8", 204, "No Content",
+                                    corsHeaders(-1, null), new java.io.ByteArrayInputStream(new byte[0]));
+                        }
                         String rawPath = reqUri.getQueryParameter("path");
                         if (rawPath != null && !rawPath.isEmpty()) {
                             try {
                                 String path = URLDecoder.decode(rawPath, "UTF-8");
                                 InputStream is = null;
-                                long fileLen = -1;
+                                long total = -1;
                                 if (path.startsWith("content://")) {
                                     Uri cu = Uri.parse(path);
+                                    try {
+                                        android.content.res.AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(cu, "r");
+                                        if (afd != null) {
+                                            total = afd.getLength();
+                                            afd.close();
+                                        }
+                                    } catch (Exception ignoredLen) {
+                                    }
                                     is = getContentResolver().openInputStream(cu);
                                 } else {
                                     File f = new File(path);
                                     if (f.exists() && f.canRead()) {
                                         is = new FileInputStream(f);
-                                        fileLen = f.length();
+                                        total = f.length();
                                     }
                                 }
                                 if (is != null) {
@@ -164,16 +187,41 @@ public class MainActivity extends Activity {
                                     else if (lower.endsWith(".flac")) mime = "audio/flac";
                                     else if (lower.endsWith(".opus")) mime = "audio/opus";
 
-                                    Map<String, String> headers = new HashMap<String, String>();
-                                    headers.put("Access-Control-Allow-Origin", "*");
-                                    headers.put("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
-                                    headers.put("Access-Control-Allow-Headers", "*");
-                                    if (fileLen > 0) {
-                                        headers.put("Content-Length", String.valueOf(fileLen));
+                                    long start = 0, end = (total > 0 ? total - 1 : -1);
+                                    boolean partial = false;
+                                    String rangeHeader = null;
+                                    try {
+                                        Map<String, String> reqHeaders = request.getRequestHeaders();
+                                        if (reqHeaders != null) rangeHeader = reqHeaders.get("Range");
+                                    } catch (Exception ignoredHeaders) {
                                     }
-                                    headers.put("Accept-Ranges", "bytes");
-
-                                    return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, is);
+                                    if (rangeHeader != null && rangeHeader.startsWith("bytes=") && total > 0) {
+                                        String spec = rangeHeader.substring(6).split(",")[0].trim();
+                                        int dash = spec.indexOf('-');
+                                        if (dash >= 0) {
+                                            String lo = spec.substring(0, dash).trim();
+                                            String hi = spec.substring(dash + 1).trim();
+                                            try {
+                                                if (lo.isEmpty()) {                      // suffix range
+                                                    long n = Long.parseLong(hi);
+                                                    if (n > 0) { start = Math.max(0, total - n); end = total - 1; partial = true; }
+                                                } else {
+                                                    start = Long.parseLong(lo);
+                                                    if (!hi.isEmpty()) end = Math.min(Long.parseLong(hi), total - 1);
+                                                    partial = start >= 0 && start <= end;
+                                                }
+                                            } catch (NumberFormatException ignoredRange) {
+                                            }
+                                        }
+                                    }
+                                    if (partial) {
+                                        long len = end - start + 1;
+                                        String contentRange = "bytes " + start + "-" + end + "/" + total;
+                                        return new WebResourceResponse(mime, "UTF-8", 206, "Partial Content",
+                                                corsHeaders(len, contentRange), new RangeStream(is, start, len));
+                                    }
+                                    return new WebResourceResponse(mime, "UTF-8", 200, "OK",
+                                            corsHeaders(total > 0 ? total : -1, null), is);
                                 }
                             } catch (Exception ignored) {
                             }
@@ -558,12 +606,97 @@ public class MainActivity extends Activity {
             }
         }
 
+        /**
+         * Called once the streamed WAV export is complete: rewrites the RIFF and
+         * data chunk sizes that were placeholders while the file was streaming.
+         *
+         * @return "ok:<path>" or "error:<message>".
+         */
+        @JavascriptInterface
+        public String finishWav(String name, long dataBytes) {
+            try {
+                File dir = getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+                if (dir == null) dir = getFilesDir();
+                File target = new File(dir, sanitize(name));
+                if (!target.exists()) return "error:file not found";
+                long size = target.length();
+                long data = dataBytes > 0 ? dataBytes : Math.max(0, size - 44);
+                if (data > size - 44 && size >= 44) data = size - 44;
+                RandomAccessFile raf = new RandomAccessFile(target, "rw");
+                writeLE32(raf, 4, (int) ((36 + data) & 0xffffffffL));
+                writeLE32(raf, 40, (int) (data & 0xffffffffL));
+                raf.close();
+                return "ok:" + target.getAbsolutePath();
+            } catch (Exception e) {
+                return "error:" + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            }
+        }
+
+        private void writeLE32(RandomAccessFile raf, long position, int value) throws IOException {
+            raf.seek(position);
+            raf.write(value & 0xFF);
+            raf.write((value >>> 8) & 0xFF);
+            raf.write((value >>> 16) & 0xFF);
+            raf.write((value >>> 24) & 0xFF);
+        }
+
         private String sanitize(String name) {
             if (name == null) return "vocalpure-export.wav";
             String s = name.trim().replaceAll("[\\\\/:*?\"<>|\\x00-\\x1f]", "_");
             if (s.length() > 180) s = s.substring(0, 180);
             if (s.isEmpty()) s = "vocalpure-export.wav";
             return s;
+        }
+    }
+
+
+    /** CORS + range headers for the streamed audio responses. */
+    private static Map<String, String> corsHeaders(long contentLength, String contentRange) {
+        Map<String, String> headers = new HashMap<String, String>();
+        headers.put("Access-Control-Allow-Origin", "*");
+        headers.put("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+        headers.put("Access-Control-Allow-Headers", "*");
+        headers.put("Accept-Ranges", "bytes");
+        if (contentLength >= 0) headers.put("Content-Length", String.valueOf(contentLength));
+        if (contentRange != null) headers.put("Content-Range", contentRange);
+        return headers;
+    }
+
+    /** InputStream limited to [start, start+length) of the wrapped stream. */
+    private static class RangeStream extends InputStream {
+        private final InputStream in;
+        private long remaining;
+
+        RangeStream(InputStream in, long start, long length) throws IOException {
+            this.in = in;
+            this.remaining = length;
+            long skip = start;
+            while (skip > 0) {
+                long s = in.skip(skip);
+                if (s <= 0) break;
+                skip -= s;
+            }
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (remaining <= 0) return -1;
+            int b = in.read();
+            if (b >= 0) remaining--;
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (remaining <= 0) return -1;
+            int n = in.read(b, off, (int) Math.min(len, remaining));
+            if (n > 0) remaining -= n;
+            return n;
+        }
+
+        @Override
+        public void close() throws IOException {
+            in.close();
         }
     }
 

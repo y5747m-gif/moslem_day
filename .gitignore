@@ -1,3 +1,7 @@
 # generated at build time by android/sync_assets.sh — do not edit
 android/assets/
 __pycache__/
+
+# test dependencies for tools/ (npm --prefix tools install recreates them)
+tools/node_modules/
+tools/package-lock.json

@@ -1,16 +1,17 @@
 {
-  "version": "2.8.0",
+  "version": "2.9.0",
   "updated": "Sep 20, 2026",
   "minAndroid": "8.0+",
-  "tagline": "Standalone player that analyzes every song and removes the music automatically",
+  "tagline": "Standalone player with an on-device AI voice engine — music removed automatically",
   "downloadPage": "https://github.com/y5747m-gif/moslem_day",
   "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
-    "Full phone music permissions: complete runtime & manifest permissions (READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE) to access all music files on your phone",
-    "Audio engine fix: restored audio routing in vocal isolation and auto-purify modes — all tracks now play loudly and clearly",
-    "Phone music scanner: automatically scan MediaStore and storage folders to import all music on the device",
-    "Background playback: uninterrupted music playback when the screen is locked or the app is minimized",
-    "Auto purify: every song is analyzed the moment you import it and its music is removed automatically on playback",
+    "Large-file fix: songs are streamed straight into the audio engine instead of being decoded into memory, so long recordings no longer exhaust RAM and crash the app",
+    "New AI voice engine (AudioWorklet): adaptive spectral separation that learns each track while it plays — centre-channel coherence, pitch/harmonic tracking, syllabic modulation and live voice/music profiles",
+    "No music mode anywhere: the mode selector, stem mixer, music fader and karaoke/mix exports are gone — every song plays as pure voice",
+    "Live AI panel: voice activity, music-cut dB, tracked pitch, engine state and processing latency",
+    "Safer exports: the purified voice is recorded while the song plays and written to the WAV in chunks (plus a native finishWav header patch), so a two-hour file is as safe as a three-minute one",
+    "Streamed phone-library playback with HTTP range support in the Android host, so seeking works on huge files without copying them into JavaScript",
     "Offline & private: 100% on-device processing; songs never leave your phone"
   ]
 }
