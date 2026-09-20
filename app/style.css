@@ -139,6 +139,18 @@ input, select { font: inherit; color: inherit; }
   box-shadow: 0 6px 18px rgba(47, 230, 200, 0.25);
 }
 .auto-pill[hidden] { display: none; }
+.hero-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: 100%;
+}
+@media (min-width: 420px) {
+  .hero-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+}
 .hero-btn {
   flex: none;
   display: inline-flex; align-items: center; gap: 0.45rem;
@@ -150,6 +162,48 @@ input, select { font: inherit; color: inherit; }
   transition: transform 0.12s, background 0.15s;
 }
 .hero-btn:active { transform: scale(0.96); background: rgba(47, 230, 200, 0.12); }
+.hero-btn.hero-btn-secondary {
+  background: rgba(58, 166, 255, 0.12);
+  color: var(--accent-2);
+  border-color: rgba(58, 166, 255, 0.45);
+}
+.hero-btn.hero-btn-secondary:active {
+  background: rgba(58, 166, 255, 0.22);
+}
+
+.perm-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: rgba(242, 193, 78, 0.12);
+  border: 1px solid rgba(242, 193, 78, 0.4);
+  border-radius: 14px;
+  padding: 0.65rem 0.85rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.82rem;
+  color: #fce7b2;
+}
+.perm-banner-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+.perm-banner button {
+  flex: none;
+  background: #f2c14e;
+  color: #1a1202;
+  border: none;
+  border-radius: 999px;
+  padding: 0.45em 0.9em;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+.perm-banner button:active {
+  transform: scale(0.95);
+}
 
 /* ---------- Song list ---------- */
 .song-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.45rem; }
@@ -217,6 +271,28 @@ input, select { font: inherit; color: inherit; }
   transition: transform 0.12s;
 }
 .primary-btn:active { transform: scale(0.97); }
+.primary-btn.secondary {
+  background: rgba(58, 166, 255, 0.16);
+  color: var(--accent-2);
+  border: 1px solid rgba(58, 166, 255, 0.45);
+  box-shadow: none;
+}
+.primary-btn.secondary:active {
+  background: rgba(58, 166, 255, 0.26);
+}
+.empty-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+@media (min-width: 420px) {
+  .empty-actions {
+    flex-direction: row;
+    justify-content: center;
+  }
+}
 .primary-btn.block { width: 100%; margin-top: 0.8rem; }
 .ghost-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;

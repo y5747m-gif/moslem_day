@@ -24,7 +24,7 @@ fi
 
 # 3. android.jar (API 25 platform stubs) from the Sable/android-platforms mirror
 if [ ! -f android.jar ]; then
-  gh api repos/Sable/android-platforms/contents/android-25/android.jar \
+  gh api repos/Sable/android-platforms/contents/android-29/android.jar \
     -H "Accept: application/vnd.github.raw" > android.jar
 fi
 
