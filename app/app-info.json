@@ -1,11 +1,15 @@
 {
-  "version": "2.9.0",
+  "version": "2.10.0",
   "updated": "Sep 20, 2026",
   "minAndroid": "8.0+",
   "tagline": "Standalone player with an on-device AI voice engine — music removed automatically",
   "downloadPage": "https://github.com/y5747m-gif/moslem_day",
   "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
+    "4K Precision mode: maximum AI separation with a tighter gate and near-zero residual floor for more exact music removal",
+    "Maximum source quality: streamed playback keeps the original file at its highest available quality without adding compression",
+    "Pinned Arabic notice highlighting high-quality audio and precise music removal",
+    "Draggable seek bar with pointer capture for smooth mouse, touch and stylus seeking, plus keyboard seek controls",
     "Large-file fix: songs are streamed straight into the audio engine instead of being decoded into memory, so long recordings no longer exhaust RAM and crash the app",
     "New AI voice engine (AudioWorklet): adaptive spectral separation that learns each track while it plays — centre-channel coherence, pitch/harmonic tracking, syllabic modulation and live voice/music profiles",
     "No music mode anywhere: the mode selector, stem mixer, music fader and karaoke/mix exports are gone — every song plays as pure voice",

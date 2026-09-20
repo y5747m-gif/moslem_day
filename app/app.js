@@ -1004,6 +1004,10 @@
   }
 
   function setAIStrength(name, opts) {
+    /* The release UI calls the tightened Max preset “precision”. Keep the
+       engine's four canonical preset names while making that explicit button
+       select the exact same high-precision path as Max. */
+    if (name === "precision") name = "max";
     if (AI_STRENGTHS.indexOf(name) < 0) name = "balanced";
     aiStrength = name;
     sendEngineParams();
@@ -1031,7 +1035,9 @@
   function updateAIUI() {
     var btns = document.querySelectorAll(".ai-btn");
     for (var i = 0; i < btns.length; i++) {
-      var on = btns[i].getAttribute("data-ai") === aiStrength;
+      var buttonStrength = btns[i].getAttribute("data-ai");
+      var on = buttonStrength === aiStrength ||
+        (buttonStrength === "precision" && aiStrength === "max");
       btns[i].classList.toggle("is-active", on);
       btns[i].setAttribute("aria-pressed", on ? "true" : "false");
     }

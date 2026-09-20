@@ -180,7 +180,7 @@ function boot(opts) {
   win.AudioNode = function () {};
   win.URL.createObjectURL = () => "blob:mock/" + Math.random().toString(36).slice(2);
   win.URL.revokeObjectURL = () => {};
-  win.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.9.0", changelog: ["AI voice engine", "large files"] }) });
+  win.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.10.0", changelog: ["AI voice engine", "large files"] }) });
   /* a fresh factory per boot so scenarios cannot see each other's songs */
   win.indexedDB = new FakeIndexedDB.IDBFactory();
   win.IDBKeyRange = FakeIndexedDB.IDBKeyRange;
@@ -209,7 +209,7 @@ function boot(opts) {
 
   const written = [];
   win.VocalPureAndroid = {
-    appInfo: () => JSON.stringify({ versionName: "2.9.0", versionCode: 290 }),
+    appInfo: () => JSON.stringify({ versionName: "2.10.0", versionCode: 2100 }),
     hasStoragePermission: () => true,
     requestStoragePermission: () => {},
     openAppSettings: () => {},
@@ -258,15 +258,15 @@ function file(name, size, type) {
 
   console.log("\nBoot");
   check("no runtime errors on launch", errors.length === 0, errors.slice(0, 3).join(" | "));
-  check("version shown from the Android bridge", /2\.9\.0/.test($("set-version").textContent), $("set-version").textContent);
+  check("version shown from the Android bridge", /2\.10\.0/.test($("set-version").textContent), $("set-version").textContent);
   check("changelog rendered from app-info.json", $("set-changelog").children.length === 2);
   check("restored/added songs appear in the library", /2/.test($("set-song-count").textContent), $("set-song-count").textContent);
 
   console.log("\nPlayback (streamed, never decoded)");
   check("device scan listed a row per song", win.document.querySelectorAll("#home-list .song-row").length === 2);
-  songRow("home-list").querySelector("button.song-main").dispatchEvent(new win.Event("click", { bubbles: true }));
+  songRow("home-list", "Big Song").querySelector("button.song-main").dispatchEvent(new win.Event("click", { bubbles: true }));
   await sleep(150);
-  check("playing the first song", /Big Song/.test($("np-title").textContent), $("np-title").textContent);
+  check("playing the selected first song", /Big Song/.test($("np-title").textContent), $("np-title").textContent);
   check("media element streams the device file",
     /vocalpure\.local\/audio\?path=/.test(win.document.querySelector("audio").src), win.document.querySelector("audio").src);
   check("AI worklet node created", MockWorkletNode.instances.length === 1 && MockWorkletNode.instances[0].name === "vp-ai-voice",
@@ -296,14 +296,30 @@ function file(name, size, type) {
   await sleep(20);
   check("strength button reaches the engine", workletParams.some((m) => m && m.t === "params" && m.strength === "strong"));
   check("active strength button highlighted", win.document.querySelector('.ai-btn[data-ai="strong"]').classList.contains("is-active"));
+  win.document.querySelector('.ai-btn[data-ai="precision"]').dispatchEvent(new win.Event("click", { bubbles: true }));
+  await sleep(20);
+  check("4K precision button selects the maximum engine path",
+    workletParams.some((m) => m && m.t === "params" && m.strength === "max") &&
+    win.document.querySelector('.ai-btn[data-ai="precision"]').classList.contains("is-active"));
   setInput($("np-voice-boost"), 12);
   check("voice boost reflected in the UI", /12/.test($("np-voice-boost-val").textContent), $("np-voice-boost-val").textContent);
   click("np-denoise");
   check("denoise switch posts gateOn=false", workletParams.some((m) => m && m.t === "params" && m.gateOn === false));
 
   console.log("\nTransport");
-  setInput($("np-progress"), 40);
-  check("seeking moved the media element", win.document.querySelector("audio").currentTime >= 0);
+  const progress = $("np-progress");
+  progress.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 8, right: 100, bottom: 8 });
+  const pointer = (type, x) => {
+    const e = new win.Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(e, "clientX", { value: x });
+    Object.defineProperty(e, "pointerId", { value: 1 });
+    progress.dispatchEvent(e);
+  };
+  pointer("pointerdown", 20);
+  pointer("pointermove", 80);
+  pointer("pointerup", 80);
+  check("dragging the seek bar moves the media element", win.document.querySelector("audio").currentTime > 0,
+    String(win.document.querySelector("audio").currentTime));
   click("btn-play");
   await sleep(20);
   click("btn-next");
