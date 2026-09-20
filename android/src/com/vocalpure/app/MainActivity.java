@@ -2,18 +2,25 @@ package com.vocalpure.app;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothProfile;
+import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
@@ -50,7 +57,22 @@ import java.util.Set;
  * Supports offline vocal isolation playback, full audio permissions
  * (READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE), scanning all music files
  * across the device storage, native audio streaming into WebView via
- * shouldInterceptRequest, and WAV export.
+ * shouldInterceptRequest, WAV export, the pinned foreground media
+ * notification (PlayerService) and robust audio-output routing:
+ *
+ *   · proper audio focus (AudioFocusRequest with a real focus listener —
+ *     the old null-listener request is gone),
+ *   · explicit output routing: auto / loudspeaker / earpiece /
+ *     Bluetooth A2DP / wired headset (the same selector the pinned
+ *     notification exposes),
+ *   · A2DP + headset + noisy broadcast receivers so a Bluetooth or
+ *     wired connection change never tears the WebView down and never
+ *     leaves audio stuck on the wrong device,
+ *   · a partial wake lock during playback so the CPU cannot sleep and
+ *     underrun the Bluetooth codec (the classic "song stutters when
+ *     the speaker connects" bug),
+ *   · configChanges coverage so orientation/keyboard/nav-bar/Bluetooth
+ *     state changes never recreate the activity mid-song.
  */
 public class MainActivity extends Activity {
 
@@ -61,8 +83,73 @@ public class MainActivity extends Activity {
     public static final String PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
     public static final String PERMISSION_WRITE_EXTERNAL_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE";
 
-    private WebView web;
+    /* the WebView is process-wide state: the foreground service and the
+       audio routing receivers run JS through it */
+    private static WebView sWeb;
+    /** the (singleTask) activity itself — the notification's output-cycle
+       action needs its AudioManager, which is instance state */
+    private static volatile MainActivity sInstance;
+
     private ValueCallback<Uri[]> fileCallback;
+    private AudioManager audioManager;
+    private AudioFocusRequest focusRequest;
+    private boolean focusHeld = false;
+    private PowerManager.WakeLock wakeLock;
+    /* the A2dp profile proxy: the platform type is @hide, so it is kept as
+       Object and driven through reflection (no hidden types at compile time) */
+    private Object a2dpProxy;
+    private volatile boolean btA2dpConnected = false;
+    private BroadcastReceiver audioReceiver;
+
+    /** Audio output selected by the user (notification or settings).
+        volatile: the JS bridge thread writes it, the UI thread reads it. */
+    private static volatile String audioOutput = "auto";
+    private static final String[] OUTPUT_CYCLE = {"auto", "speaker", "earpiece", "bluetooth", "wired"};
+
+    /* ------------------------------------------------------------------ */
+    /* Static helpers used by PlayerService (same process)                 */
+    /* ------------------------------------------------------------------ */
+
+    public static void runJs(final String code) {
+        final WebView w = sWeb;
+        if (w == null || code == null) return;
+        w.post(new Runnable() {
+            @Override public void run() {
+                try { w.evaluateJavascript(code, null); } catch (Throwable ignored) { }
+            }
+        });
+    }
+
+    public static String currentAudioOutput() { return audioOutput; }
+
+    public static String currentOutputLabel() {
+        if ("speaker".equals(audioOutput)) return "Speaker";
+        if ("earpiece".equals(audioOutput)) return "Earpiece";
+        if ("bluetooth".equals(audioOutput)) return "Bluetooth";
+        if ("wired".equals(audioOutput)) return "Wired";
+        return "Auto";
+    }
+
+    /** Cycles the output: auto → speaker → earpiece → bluetooth → wired. */
+    public static void cycleAudioOutput() {
+        int i = 0;
+        for (int k = 0; k < OUTPUT_CYCLE.length; k++) {
+            if (OUTPUT_CYCLE[k].equals(audioOutput)) { i = k; break; }
+        }
+        audioOutput = OUTPUT_CYCLE[(i + 1) % OUTPUT_CYCLE.length];
+        final MainActivity a = sInstance;
+        if (a == null) return;
+        a.runOnUiThread(new Runnable() {
+            @Override public void run() {
+                try { a.applyRouting(); } catch (Throwable ignored) { }
+                runJs("onNativeMediaAction('output-sync:" + audioOutput + "')");
+            }
+        });
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Permissions                                                         */
+    /* ------------------------------------------------------------------ */
 
     public boolean hasAudioPermission() {
         if (Build.VERSION.SDK_INT >= 33) {
@@ -94,6 +181,10 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Lifecycle                                                           */
+    /* ------------------------------------------------------------------ */
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -101,24 +192,26 @@ public class MainActivity extends Activity {
         getWindow().setStatusBarColor(Color.parseColor("#070b12"));
         getWindow().setNavigationBarColor(Color.parseColor("#070b12"));
 
-        // Ensure hardware volume controls adjust media stream
+        // Hardware volume keys adjust the media stream
         setVolumeControlStream(AudioManager.STREAM_MUSIC);
 
-        // Request audio focus for proper sound output
-        try {
-            AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-            if (am != null) {
-                am.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
-            }
-        } catch (Exception ignored) {
-        }
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        registerAudioListener();
 
         // Auto-request storage/music permissions on first launch if needed
         if (!hasAudioPermission()) {
             requestAudioPermissions();
         }
 
+        sInstance = this;
+        webInit();
+    }
+
+    private WebView web;
+
+    private void webInit() {
         web = new WebView(this);
+        sWeb = web;
         web.setBackgroundColor(Color.parseColor("#070b12"));
 
         WebSettings s = web.getSettings();
@@ -328,19 +421,281 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web != null) web.onResume();
+        // If Bluetooth reconnected while we were away and the user prefers it,
+        // re-assert the routing (the receiver normally handles this).
+        try { applyRouting(); } catch (Throwable ignored) { }
     }
 
     @Override
     protected void onDestroy() {
+        try { registerAudioListenerOff(); } catch (Throwable ignored) { }
+        try { abandonFocusInternal(); } catch (Throwable ignored) { }
+        try { releaseWakeLock(); } catch (Throwable ignored) { }
         if (web != null) {
+            if (sWeb == web) sWeb = null;
             web.loadUrl("about:blank");
             web.destroy();
             web = null;
         }
+        if (sInstance == this) sInstance = null;
         super.onDestroy();
     }
 
-    /** Exposes app identity, permissions, device music scanning, and WAV export to the bundled page. */
+    /* ------------------------------------------------------------------ */
+    /* Audio focus — a real listener, requested while playing              */
+    /* ------------------------------------------------------------------ */
+
+    private final AudioManager.OnAudioFocusChangeListener focusListener =
+            new AudioManager.OnAudioFocusChangeListener() {
+        @Override public void onAudioFocusChange(int focusChange) {
+            if (focusChange == AudioManager.AUDIOFOCUS_LOSS ||
+                focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                focusHeld = false;
+                runJs("onNativeMediaAction('focus:loss')");
+            } else if (focusChange == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                runJs("onNativeMediaAction('focus:duck')");
+            } else if (focusChange == AudioManager.AUDIOFOCUS_GAIN) {
+                focusHeld = true;
+                runJs("onNativeMediaAction('focus:gain')");
+            }
+        }
+    };
+
+    public void requestFocusInternal() {
+        if (focusHeld || audioManager == null) return;
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                AudioAttributes attrs = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build();
+                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(attrs)
+                        .setOnAudioFocusChangeListener(focusListener)
+                        .build();
+                if (audioManager.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    focusHeld = true;
+                }
+            } else {
+                if (audioManager.requestAudioFocus(focusListener,
+                        AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+                        == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                    focusHeld = true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public void abandonFocusInternal() {
+        if (audioManager == null) return;
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) {
+                audioManager.abandonAudioFocusRequest(focusRequest);
+                focusRequest = null;
+            } else {
+                audioManager.abandonAudioFocus(focusListener);
+            }
+        } catch (Throwable ignored) {
+        }
+        focusHeld = false;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Output routing — auto / speaker / earpiece / bluetooth / wired      */
+    /* ------------------------------------------------------------------ */
+
+    public boolean btConnected() {
+        try {
+            Object p = a2dpProxy;
+            if (p != null) {
+                Object state = p.getClass().getMethod("getConnectionState").invoke(p);
+                if (state instanceof Integer) {
+                    return ((Integer) state) == BluetoothProfile.STATE_CONNECTED;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return btA2dpConnected;
+    }
+
+    public boolean wiredConnected() {
+        try { return audioManager != null && audioManager.isWiredHeadsetOn(); }
+        catch (Throwable t) { return false; }
+    }
+
+    /** Applies the selected output; returns the mode actually in effect. */
+    public String applyRouting() {
+        if (audioManager == null) return audioOutput;
+        try {
+            if ("earpiece".equals(audioOutput)) {
+                audioManager.setSpeakerphoneOn(false);
+                audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+            } else if ("speaker".equals(audioOutput)) {
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+                audioManager.setSpeakerphoneOn(true);
+            } else if ("bluetooth".equals(audioOutput)) {
+                audioManager.setSpeakerphoneOn(false);
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+                if (!btConnected()) {
+                    audioOutput = "speaker";          /* no A2DP: use the phone speaker */
+                    audioManager.setSpeakerphoneOn(true);
+                }
+            } else if ("wired".equals(audioOutput)) {
+                audioManager.setSpeakerphoneOn(false);
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+                if (!wiredConnected()) {
+                    audioOutput = "speaker";          /* no jack: use the phone speaker */
+                    audioManager.setSpeakerphoneOn(true);
+                }
+            } else { /* auto — let the system pick: wired > Bluetooth > speaker */
+                audioManager.setMode(AudioManager.MODE_NORMAL);
+                audioManager.setSpeakerphoneOn(false);
+            }
+        } catch (Throwable ignored) {
+        }
+        return audioOutput;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Wake lock — keep the CPU up while the song plays so the Bluetooth   */
+    /* codec (or the streamed decode) is never starved                     */
+    /* ------------------------------------------------------------------ */
+
+    public void setWakeLock(boolean on) {
+        try {
+            if (on) {
+                if (wakeLock == null) {
+                    PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                    if (pm != null) {
+                        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "vocalpure:playback");
+                        wakeLock.setReferenceCounted(false);
+                    }
+                }
+                if (wakeLock != null && !wakeLock.isHeld()) {
+                    wakeLock.acquire(12L * 60 * 60 * 1000);   /* hard cap, released on pause/destroy */
+                }
+            } else {
+                releaseWakeLock();
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Bluetooth / headset / noisy receivers                               */
+    /* ------------------------------------------------------------------ */
+
+    private void registerAudioListener() {
+        try {
+            audioReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    if (intent == null || intent.getAction() == null) return;
+                    String action = intent.getAction();
+                    if ("android.bluetooth.device.action.A2DP_CONNECTION_STATE".equals(action)) {
+                        int state = intent.getIntExtra(
+                                "android.bluetooth.device.extra.STATE", -1);
+                        if (state == BluetoothProfile.STATE_CONNECTED) {
+                            btA2dpConnected = true;
+                            runJs("onNativeMediaAction('bt:connected')");
+                        } else if (state == BluetoothProfile.STATE_DISCONNECTED) {
+                            btA2dpConnected = false;
+                            runJs("onNativeMediaAction('bt:disconnected')");
+                        }
+                        try { applyRouting(); } catch (Throwable ignored) { }
+                    } else if ("android.bluetooth.device.action.ACL_CONNECTED".equals(action)) {
+                        try { applyRouting(); } catch (Throwable ignored) { }
+                    } else if (Intent.ACTION_HEADSET_PLUG.equals(action)) {
+                        int state = intent.getIntExtra("state", -1);
+                        if (state == 0) {
+                            runJs("onNativeMediaAction('headset:unplugged')");
+                        } else {
+                            runJs("onNativeMediaAction('headset:plugged')");
+                        }
+                        try { applyRouting(); } catch (Throwable ignored) { }
+                    } else if ("android.media.action.AUDIO_BECOMING_NOISY".equals(action)) {
+                        runJs("onNativeMediaAction('headset:unplugged')");
+                    }
+                }
+            };
+            IntentFilter f = new IntentFilter();
+            f.addAction("android.bluetooth.device.action.A2DP_CONNECTION_STATE");
+            f.addAction("android.bluetooth.device.action.ACL_CONNECTED");
+            f.addAction(Intent.ACTION_HEADSET_PLUG);
+            f.addAction("android.media.action.AUDIO_BECOMING_NOISY");
+            registerReceiver(audioReceiver, f);
+        } catch (Throwable ignored) {
+        }
+        try {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter != null && adapter.isEnabled()) {
+                /* ServiceListener.onServiceConnected takes a @hide proxy type,
+                   so the listener itself is a java.lang.reflect.Proxy — the
+                   hidden class never appears in our compiled code. */
+                final Object listener = java.lang.reflect.Proxy.newProxyInstance(
+                        getClass().getClassLoader(),
+                        new Class<?>[]{ BluetoothProfile.ServiceListener.class },
+                        new java.lang.reflect.InvocationHandler() {
+                            @Override public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                                try {
+                                    if ("onServiceConnected".equals(method.getName())
+                                            && args != null && args.length >= 1) {
+                                        a2dpProxy = args[0];
+                                        try {
+                                            Object st = a2dpProxy.getClass()
+                                                    .getMethod("getConnectionState").invoke(a2dpProxy);
+                                            btA2dpConnected = st instanceof Integer
+                                                    && (Integer) st == BluetoothProfile.STATE_CONNECTED;
+                                        } catch (Throwable ignored) { }
+                                    } else if ("onServiceDisconnected".equals(method.getName())) {
+                                        a2dpProxy = null;
+                                    }
+                                } catch (Throwable ignored) { }
+                                return null;
+                            }
+                        });
+                adapter.getProfileProxy(this, (BluetoothProfile.ServiceListener) listener,
+                        BluetoothProfile.A2DP);
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void registerAudioListenerOff() {
+        try {
+            if (audioReceiver != null) {
+                unregisterReceiver(audioReceiver);
+                audioReceiver = null;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            if (adapter != null && a2dpProxy != null) {
+                /* closeProfileProxy also takes the @hide type → reflection */
+                java.lang.reflect.Method m = BluetoothAdapter.class.getMethod(
+                        "closeProfileProxy", int.class,
+                        Class.forName("android.bluetooth.BluetoothProxyProxy"));
+                m.invoke(adapter, BluetoothProfile.A2DP, a2dpProxy);
+                a2dpProxy = null;
+            }
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* JS bridge                                                           */
+    /* ------------------------------------------------------------------ */
+
+    /** Exposes app identity, permissions, device music scanning, WAV export,
+        the pinned media notification and audio routing to the bundled page. */
     private class AppBridge {
 
         @JavascriptInterface
@@ -366,8 +721,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void requestStoragePermission() {
             runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
+                @Override public void run() {
                     requestAudioPermissions();
                 }
             });
@@ -403,6 +757,131 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }
+
+        /* ---------------- pinned media notification ---------------- */
+
+        @JavascriptInterface
+        public void setNowPlayingMeta(final String title, final String subtitle, final String artBase64) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    Intent i = new Intent(MainActivity.this, PlayerService.class);
+                    i.setAction(PlayerService.ACTION_META);
+                    i.putExtra("title", title != null ? title : "VocalPure");
+                    i.putExtra("subtitle", subtitle != null ? subtitle : "");
+                    i.putExtra("art", artBase64 != null ? artBase64 : "");
+                    if (PlayerService.isRunning()) {
+                        PlayerService.updateState(i);
+                    } else {
+                        try { startService(i); } catch (Throwable ignored) { }
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void setPlayState(final boolean playing, final long positionMs,
+                                 final long durationMs, final float rate) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    Intent i = new Intent(MainActivity.this, PlayerService.class);
+                    i.setAction(PlayerService.ACTION_STATE);
+                    i.putExtra("playing", playing);
+                    i.putExtra("positionMs", positionMs);
+                    i.putExtra("durationMs", durationMs);
+                    i.putExtra("rate", rate);
+                    if (PlayerService.isRunning()) {
+                        PlayerService.updateState(i);
+                    } else if (playing) {
+                        /* first playback: start the foreground service */
+                        i.putExtra("title", "VocalPure");
+                        i.putExtra("subtitle", "");
+                        try { startService(i); } catch (Throwable ignored) { }
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void stopPlaybackNotification() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    Intent i = new Intent(MainActivity.this, PlayerService.class);
+                    i.setAction(PlayerService.ACTION_STOP);
+                    try { startService(i); } catch (Throwable ignored) { }
+                }
+            });
+        }
+
+        /* ---------------- audio focus + wake lock ---------------- */
+
+        @JavascriptInterface
+        public void requestAudioFocus() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    requestFocusInternal();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void abandonAudioFocus() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    abandonFocusInternal();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void setPlaying(final boolean on) {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    setWakeLock(on);
+                }
+            });
+        }
+
+        /* ---------------- output routing ---------------- */
+
+        /** Sets the audio output; returns the mode actually in effect
+            (a fallback mode when e.g. Bluetooth is not connected).
+            AudioManager routing is thread-safe, so this runs directly on
+            the bridge thread and returns synchronously. */
+        @JavascriptInterface
+        public String setAudioOutput(String mode) {
+            if (mode != null) {
+                for (int i = 0; i < OUTPUT_CYCLE.length; i++) {
+                    if (OUTPUT_CYCLE[i].equals(mode)) {
+                        audioOutput = mode;
+                        return applyRouting();
+                    }
+                }
+            }
+            return audioOutput;
+        }
+
+        @JavascriptInterface
+        public String getAudioState() {
+            try {
+                JSONObject o = new JSONObject();
+                o.put("current", audioOutput);
+                o.put("label", currentOutputLabel());
+                o.put("btConnected", btConnected());
+                o.put("wiredConnected", wiredConnected());
+                return o.toString();
+            } catch (Throwable t) {
+                return "{\"current\":\"auto\"}";
+            }
+        }
+
+        private boolean containsOutput(String m) {
+            for (int i = 0; i < OUTPUT_CYCLE.length; i++) {
+                if (OUTPUT_CYCLE[i].equals(m)) return true;
+            }
+            return false;
+        }
+
+        /* ---------------- device music scanning ---------------- */
 
         /**
          * Scans the phone for all music files using MediaStore and public music folders.

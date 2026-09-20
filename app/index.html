@@ -194,6 +194,16 @@
             </select>
           </div>
           <div class="set-row">
+            <span class="set-label">Audio output<small class="set-sub">Also switchable from the pinned notification</small></span>
+            <select id="set-audio-output" aria-label="Audio output">
+              <option value="auto" selected>Auto (system)</option>
+              <option value="speaker">Loudspeaker</option>
+              <option value="earpiece">Phone earpiece</option>
+              <option value="bluetooth">Bluetooth</option>
+              <option value="wired">Wired headset</option>
+            </select>
+          </div>
+          <div class="set-row">
             <span class="set-label">Sleep timer</span>
             <select id="set-sleep" aria-label="Sleep timer">
               <option value="0" selected>Off</option>
@@ -218,8 +228,8 @@
             <select id="set-ai-strength" aria-label="AI separation strength">
               <option value="soft">Soft</option>
               <option value="balanced">Balanced</option>
-              <option value="strong" selected>Strong</option>
-              <option value="max">Max</option>
+              <option value="strong">Strong</option>
+              <option value="max" selected>Max · 100% Isolation</option>
             </select>
           </div>
           <div class="set-row">
@@ -451,9 +461,9 @@
             <div class="ai-strength-row" role="group" aria-label="AI separation strength">
               <button type="button" class="ai-btn" data-ai="soft" aria-pressed="false">Soft</button>
               <button type="button" class="ai-btn" data-ai="balanced" aria-pressed="false">Balanced</button>
-              <button type="button" class="ai-btn is-active" data-ai="strong" aria-pressed="true">Strong</button>
+              <button type="button" class="ai-btn" data-ai="strong" aria-pressed="false">Strong</button>
               <button type="button" class="ai-btn" data-ai="max" aria-pressed="false">Max</button>
-              <button type="button" class="ai-btn" data-ai="precision" aria-pressed="false">4K Precision</button>
+              <button type="button" class="ai-btn is-active" data-ai="precision" aria-pressed="true">100% Isolation</button>
             </div>
             <div class="quality-note">🔊 <b>4K Audio quality</b> — preserves the original file's highest available sample rate without compressing it.</div>
             <p class="engine-line" id="engine-line">Starting the on-device AI engine…</p>
@@ -525,6 +535,7 @@
   </div>
 
   <script src="vp-ai-engine.js"></script>
+  <script src="vp-cover.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

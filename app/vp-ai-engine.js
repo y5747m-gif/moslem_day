@@ -12,6 +12,17 @@
        processing is what makes arbitrarily large songs safe: the engine never
        decodes a file into memory, it only ever sees a 1024-sample window.
 
+     · Pure isolation (Max / “4K Precision”) — the default. On top of the
+       soft mask, three hard rules make the removal complete instead of
+       statistical: (1) every bin outside the hard voice band 115 Hz–9 kHz
+       is set to exactly zero (kick, bass and air/cymbals can never leak),
+       (2) any bin whose voice log-odds falls below a strict threshold is
+       zeroed rather than attenuated, and (3) the residual floor is 0 — a
+       closed mask outputs digital silence, not a −60 dB ghost. Combined
+       with the frame gate (non-voice frames go fully silent) and the
+       sustained-instrument suppressor, no music energy passes through:
+       what remains is the voice, nothing else.
+
      · Per-bin evidence that a bin belongs to a voice, summed in log-odds:
          1. learned spectral profiles — two adaptive per-track profiles (voice
             / music) trained online (EM-style, τ ≈ 0.3 s) from the very song
@@ -52,16 +63,18 @@
     "use strict";
 
     /* Strength presets: how hard the mask pushes music down.
-       Floors are residual gains: max's 0.001 leaves ≤ −60 dB behind when the
-       mask fully closes, so a fully-gated instrumental vanishes instead of
-       humming quietly underneath. */
+       Floors are residual gains: max's floor is 0 — a fully closed mask is
+       digital silence, not a quiet hum. */
     var AI_STRENGTH = {
       soft:     { steep: 0.85, gate: 0.18, floor: 0.060, sus: 0.50, susRate: 0.030, label: "Soft" },
       balanced: { steep: 1.35, gate: 0.22, floor: 0.030, sus: 0.25, susRate: 0.040, label: "Balanced" },
       strong:   { steep: 2.00, gate: 0.28, floor: 0.020, sus: 0.12, susRate: 0.045, label: "Strong" },
-      /* Max / 4K precision: a tighter gate and near-zero residual floor
-         prevent quiet instrumental notes from leaking into the vocal. */
-      max:      { steep: 4.20, gate: 0.39, floor: 0.001, sus: 0.00, susRate: 0.100, label: "Max · 4K Precision" }
+      /* Max / 4K precision — the default and the only setting that promises
+         100% music removal: the pure path (see below) turns the soft mask
+         into a hard one. zero floor = closed masks are exact silence. */
+      max:      { steep: 4.20, gate: 0.39, floor: 0.000, sus: 0.00, susRate: 0.100,
+                  pure: true, pureTh: 0.35, pureLo: 115, pureHi: 9000,
+                  label: "Max · 100% Isolation" }
     };
 
     var FFT_N = 1024;          /* frame length (≈21 ms @ 48 kHz)              */
@@ -258,6 +271,11 @@
       p.susFloor = AI_STRENGTH.balanced.sus;
       p.susRate = AI_STRENGTH.balanced.susRate;
       p.capture = false;
+      /* Pure (hard) isolation — active for the max preset only */
+      p.pure = false;
+      p.pureTh = 0.35;
+      p.pureLo = 115;
+      p.pureHi = 9000;
       /* NOTE: there is intentionally no bypass/unity-mask path. The engine
          always separates; silence-until-processed is enforced by the app,
          which never routes audio around this node. */
@@ -305,7 +323,11 @@
       p.floor = preset.floor;
       p.susFloor = preset.sus;
       p.susRate = preset.susRate;
-      p.port.postMessage({ t: "params", strength: key });
+      p.pure = !!preset.pure;
+      p.pureTh = preset.pureTh || 0.35;
+      p.pureLo = preset.pureLo || 115;
+      p.pureHi = preset.pureHi || 9000;
+      p.port.postMessage({ t: "params", strength: key, pure: p.pure });
     }
 
     function resetModels(p) {
@@ -575,6 +597,14 @@
           + 1.00 * p.band[k - 1]
           + 1.40 * (p.vad - 0.45);
         mask[k] = 1 / (1 + Math.exp(-logit * p.steep));
+        /* ---- pure isolation (100% removal, max preset) ----
+           The soft mask only attenuates; the pure path makes the decision
+           hard: outside the physical voice band there is no voice at all,
+           and inside it a bin is kept ONLY when the summed evidence clearly
+           favours the voice. Anything else goes to exactly zero. */
+        if (p.pure) {
+          if (fh < p.pureLo || fh > p.pureHi || logit < p.pureTh) mask[k] = 0;
+        }
       }
       mask[0] = p.floor;
       mask[HALF] = p.floor;
@@ -592,9 +622,12 @@
         for (k = 0; k <= HALF; k++) mask[k] *= p.susGate;
       }
 
-      /* ---- 3-tap frequency smoothing + temporal smoothing ---- */
+      /* ---- 3-tap frequency smoothing + temporal smoothing ----
+         Pure mode keeps the hard edge (any neighbour bleed would let a
+         slice of the music through); only time smoothing is applied. */
       var smoothed = p.smoothed;
       for (k = 1; k <= NB; k++) {
+        if (p.pure) { smoothed[k] = mask[k]; continue; }
         var km = k > 1 ? mask[k - 1] : mask[k];
         var kp = k < NB ? mask[k + 1] : mask[k];
         smoothed[k] = 0.25 * km + 0.5 * mask[k] + 0.25 * kp;

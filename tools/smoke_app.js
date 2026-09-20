@@ -56,7 +56,7 @@ const GLOBALS = new Set(["window", "document", "console", "Math", "JSON", "Objec
   "undefined", "NaN", "Infinity", "arguments", "eval", "Node", "Event", "CustomEvent", "Audio", "queueMicrotask",
   "Intl", "BigInt", "crypto", "AudioWorkletProcessor", "registerProcessor", "sampleRate", "currentTime", "process",
   "prompt", "confirm", "alert", "escape", "unescape", "requestIdleCallback", "matchMedia", "CSS",
-  "IntersectionObserver", "BroadcastChannel", "ResizeObserver", "MediaQueryList", "getComputedStyle", "AudioWorklet"]);
+  "IntersectionObserver", "BroadcastChannel", "ResizeObserver", "MediaQueryList", "getComputedStyle", "AudioWorklet", "Image"]);
 
 function scopeProblems(file) {
   const src = read(file);
@@ -106,7 +106,7 @@ function scopeProblems(file) {
   });
   return bad;
 }
-for (const file of ["app/app.js", "app/vp-ai-engine.js", "js/app.js", "js/background.js"]) {
+for (const file of ["app/app.js", "app/vp-ai-engine.js", "app/vp-cover.js", "js/app.js", "js/background.js"]) {
   const problems = scopeProblems(file);
   check(file + " has no undeclared symbols", problems.length === 0, problems.join(", "));
 }
@@ -116,6 +116,7 @@ const APP = path.join(ROOT, "app");
 const html = read("app/index.html").replace(/<script[^>]*><\/script>/g, "");
 const appJs = read("app/app.js");
 const engineJs = read("app/vp-ai-engine.js");
+const coverJs = read("app/vp-cover.js");
 
 function param(v) {
   return { value: v, setValueAtTime() { return this; }, setTargetAtTime() { return this; },
@@ -187,6 +188,15 @@ function boot(opts) {
   win.XMLHttpRequest = function () { this.open = () => {}; this.send = () => {}; this.setRequestHeader = () => {}; };
 
   const mediaProto = win.HTMLMediaElement.prototype;
+  /* like a real browser: assigning .src kicks off metadata loading */
+  Object.defineProperty(mediaProto, "src", {
+    get() { return this._src || ""; },
+    set(v) {
+      this._src = v;
+      setTimeout(() => this.dispatchEvent(new win.Event("loadedmetadata")), 0);
+    },
+    configurable: true
+  });
   Object.defineProperty(mediaProto, "duration", { get() { return this._d || 190; }, configurable: true });
   Object.defineProperty(mediaProto, "currentTime", { get() { return this._t || 0; }, set(v) { this._t = v; }, configurable: true });
   Object.defineProperty(mediaProto, "readyState", { get() { return 4; }, configurable: true });
@@ -208,6 +218,7 @@ function boot(opts) {
   win.prompt = () => "Test playlist";
 
   const written = [];
+  const mediaCalls = { meta: [], state: [], stop: 0, output: [], focusReq: 0, focusAb: 0, playing: [] };
   win.VocalPureAndroid = {
     appInfo: () => JSON.stringify({ versionName: "2.11.0", versionCode: 2110 }),
     hasStoragePermission: () => true,
@@ -220,12 +231,22 @@ function boot(opts) {
     ]),
     readAudioBase64: () => "",
     writeFile: (name, b64, last) => { written.push({ name, len: b64.length, last }); return "ok:/music/" + name; },
-    finishWav: () => "ok:/music/out.wav"
+    finishWav: () => "ok:/music/out.wav",
+    /* pinned foreground notification + audio focus + output routing */
+    setNowPlayingMeta: (t, a, art) => { mediaCalls.meta.push({ t, a, art: art ? art.length : 0 }); },
+    setPlayState: (p, pos, dur, rate) => { mediaCalls.state.push({ p, pos, dur, rate }); },
+    stopPlaybackNotification: () => { mediaCalls.stop++; },
+    setAudioOutput: (m) => { mediaCalls.output.push(m); return m || "auto"; },
+    getAudioState: () => JSON.stringify({ current: "auto", label: "Auto", btConnected: false, wiredConnected: false }),
+    requestAudioFocus: () => { mediaCalls.focusReq++; },
+    abandonAudioFocus: () => { mediaCalls.focusAb++; },
+    setPlaying: (on) => { mediaCalls.playing.push(on); }
   };
 
+  win.eval(coverJs);
   win.eval(engineJs);
   win.eval(appJs);
-  return { win, errors, workletParams, written, MockWorkletNode };
+  return { win, errors, workletParams, written, MockWorkletNode, mediaCalls };
 }
 
 /* ------------------------------------------------ run the real app code */
@@ -235,6 +256,7 @@ const errors = B.errors;
 const workletParams = B.workletParams;
 const written = B.written;
 const MockWorkletNode = B.MockWorkletNode;
+const mediaCalls = B.mediaCalls;
 
 /* ------------------------------ ui helpers ------------------------------ */
 const $ = (id) => win.document.getElementById(id);
@@ -272,7 +294,8 @@ function file(name, size, type) {
   check("AI worklet node created", MockWorkletNode.instances.length === 1 && MockWorkletNode.instances[0].name === "vp-ai-voice",
     MockWorkletNode.instances.length + " node(s)");
   const firstParams = workletParams.find((m) => m && m.t === "params");
-  check("engine params sent (strength, gate, capture)", !!firstParams && firstParams.strength === "strong" && typeof firstParams.capture === "boolean",
+  /* the default separation strength is now "max" — 100% isolation */
+  check("engine params sent (default strength is max/100% isolation)", !!firstParams && firstParams.strength === "max" && typeof firstParams.capture === "boolean",
     JSON.stringify(firstParams || {}));
   /* the worklet announces itself; only then does the app consider the engine live */
   const readyPort = MockWorkletNode.instances[0].port.onmessage;
@@ -339,6 +362,44 @@ function file(name, size, type) {
   click("btn-repeat");
   check("repeat toggles", $("btn-repeat").classList.contains("is-active"));
 
+  console.log("\nPinned notification (native media bridge)");
+  check("notification received the current track metadata",
+    mediaCalls.meta.length > 0 && /Big Song|Second/.test(mediaCalls.meta[mediaCalls.meta.length - 1].t),
+    JSON.stringify(mediaCalls.meta.slice(-1)));
+  check("play state ticks carry position + duration",
+    mediaCalls.state.some((s) => s.p === true && s.dur > 0), JSON.stringify(mediaCalls.state.slice(-1)));
+  check("audio focus is requested while playing", mediaCalls.focusReq > 0, mediaCalls.focusReq + " request(s)");
+  check("wake lock engaged during playback", mediaCalls.playing.indexOf(true) >= 0);
+  win.onNativeMediaAction("pause");
+  await sleep(20);
+  check("notification 'pause' stops playback", win.document.querySelector("audio").paused === true);
+  check("paused state pushed to the foreground service", mediaCalls.state.some((s) => s.p === false));
+  win.onNativeMediaAction("play");
+  await sleep(60);
+  check("notification 'play' resumes playback", win.document.querySelector("audio").paused === false);
+  win.onNativeMediaAction("seek:5000");
+  await sleep(20);
+  check("notification seek moves the position", Math.abs(win.document.querySelector("audio").currentTime - 5) < 0.01,
+    String(win.document.querySelector("audio").currentTime));
+
+  console.log("\nAudio output routing");
+  check("output selector exists in settings", !!$("set-audio-output") && $("set-audio-output").value === "auto",
+    $("set-audio-output") ? $("set-audio-output").value : "missing");
+  setInput($("set-audio-output"), "speaker");
+  check("settings change routes natively", mediaCalls.output[mediaCalls.output.length - 1] === "speaker",
+    JSON.stringify(mediaCalls.output));
+  setInput($("set-audio-output"), "bluetooth");
+  check("bluetooth is selected", $("set-audio-output").value === "bluetooth");
+  win.onNativeMediaAction("bt:disconnected");
+  await sleep(20);
+  check("Bluetooth disconnect falls back to the loudspeaker",
+    $("set-audio-output").value === "speaker" && mediaCalls.output[mediaCalls.output.length - 1] === "speaker",
+    $("set-audio-output").value);
+  win.onNativeMediaAction("output-sync:earpiece");
+  check("native output cycling is mirrored in the settings UI", $("set-audio-output").value === "earpiece");
+  setInput($("set-audio-output"), "auto");
+  check("back to auto routing", mediaCalls.output[mediaCalls.output.length - 1] === "auto");
+
   console.log("\nSearch / settings / EQ / theme");
   win.document.querySelector('.tab[data-screen="search"]').dispatchEvent(new win.Event("click", { bubbles: true }));
   check("search screen visible", !$("screen-search").hidden);
@@ -383,6 +444,46 @@ function file(name, size, type) {
   input.dispatchEvent(new win.Event("change", { bubbles: true }));
   await sleep(150);
   check("oversized file skipped without a crash", errors.length === 0, errors.slice(0, 2).join(" | "));
+
+  console.log("\nCover art (embedded in the audio file)");
+  const impRow = songRow("home-list", "Imported Song");
+  check("song without embedded art shows the default artwork in its row",
+    !!impRow && !!impRow.querySelector(".song-cover.vp-default-art"));
+  check("now-playing falls back to the built-in default artwork",
+    /data:image\/svg\+xml/.test(win.document.getElementById("np-art").style.backgroundImage || ""),
+    (win.document.getElementById("np-art").style.backgroundImage || "").slice(0, 40));
+
+  /* a real ID3v2.4 MP3 carrying an embedded APIC PNG cover */
+  const png = new Uint8Array([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A, 0,0,0,13, 0x49,0x48,0x44,0x52,
+    0,0,0,1, 0,0,0,1, 8,6,0,0,0, 0x1F,0x15,0xC4,0x89, 0,0,0,13, 0x49,0x44,0x41,0x54,
+    0x78,0xDA,0x63,0xFC,0xCF,0xC0,0,0,0,2,0,1,0xE2,0x21,0xBC,0x33, 0,0,0,0,
+    0x49,0x45,0x4E,0x44,0xAE,0x42,0x60,0x82]);
+  const u32b = (v) => new Uint8Array([(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255]);
+  const csz = (s) => { const b = new Uint8Array(s.length + 1); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; };
+  const catB = (...ps) => { const n = ps.reduce((a, p) => a + p.length, 0); const o = new Uint8Array(n); let k = 0; for (const p of ps) { o.set(p, k); k += p.length; } return o; };
+  const apicPayload = catB(new Uint8Array([3]), csz("image/png"), new Uint8Array([3]), csz("Cover"), png);
+  const apicFrame = catB(new Uint8Array([0x41, 0x50, 0x49, 0x43]), u32b(apicPayload.length), new Uint8Array([0, 0]), apicPayload);
+  const id3Tag = catB(new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0]), u32b(apicFrame.length), apicFrame);
+  const coveredBytes = catB(id3Tag, new Uint8Array(1024));
+  const covFile = new win.File([coveredBytes], "Artist - Covered Song.mp3", { type: "audio/mpeg" });
+  Object.defineProperty(covFile, "size", { value: coveredBytes.length });
+  Object.defineProperty(input, "files", { value: [covFile], configurable: true });
+  input.dispatchEvent(new win.Event("change", { bubbles: true }));
+  await sleep(700);
+  const covRow = songRow("home-list", "Covered Song");
+  const covArt = covRow && covRow.querySelector(".song-cover");
+  check("embedded ID3v2 cover art is extracted from the imported MP3",
+    !!covArt && !covArt.classList.contains("vp-default-art") &&
+    /data:image\/png;base64/.test(covArt.style.backgroundImage || ""),
+    covArt ? (covArt.style.backgroundImage || "").slice(0, 44) : "row missing");
+  covRow.querySelector("button.song-main").dispatchEvent(new win.Event("click", { bubbles: true }));
+  await sleep(200);
+  check("now-playing shows the extracted cover",
+    /data:image\/png;base64/.test(win.document.getElementById("np-art").style.backgroundImage || ""),
+    (win.document.getElementById("np-art").style.backgroundImage || "").slice(0, 44));
+  check("the cover was pushed to the pinned notification",
+    mediaCalls.meta.some((m) => m.t === "Covered Song" && m.art > 0),
+    JSON.stringify(mediaCalls.meta.filter((m) => m.t === "Covered Song")));
 
   console.log("\nExport (captured while playing)");
   click("exp-voice");

@@ -35,7 +35,7 @@ function section(t) { console.log("\n" + t); }
 
 /* ------------------------------------------------------------------ syntax */
 section("JavaScript syntax");
-const JS_FILES = ["app/app.js", "app/vp-ai-engine.js", "js/app.js", "js/background.js"];
+const JS_FILES = ["app/app.js", "app/vp-ai-engine.js", "app/vp-cover.js", "js/app.js", "js/background.js"];
 for (const f of JS_FILES) {
   let ok = true, err = "";
   try { new vm.Script(read(f), { filename: f }); } catch (e) { ok = false; err = e.message; }

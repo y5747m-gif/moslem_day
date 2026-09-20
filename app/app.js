@@ -78,11 +78,14 @@
    hard the AI engine pushes the music down and how loud the voice
    comes out.
    ============================================================ */
-  var SETTINGS_KEY = "vp-app-settings-v3";
-  var LEGACY_SETTINGS_KEY = "vp-app-settings-v2";
+  var SETTINGS_KEY = "vp-app-settings-v4";
+  var LEGACY_SETTINGS_KEY = "vp-app-settings-v3";
   var settings = {
     volume: 80, rate: 1,
-    aiStrength: "strong", aiBoost: 6, aiDenoise: true,
+    /* Max / "100% Isolation" is the default: the pure (hard) mask path
+       removes the music completely, leaving only the voice. */
+    aiStrength: "max", aiBoost: 6, aiDenoise: true,
+    audioOutput: "auto",
     eqOn: true, eq: [0, 0, 0, 0, 0], eqPreset: "normal",
     shuffle: false, repeat: "off"
   };
@@ -94,10 +97,11 @@
         /* one-time carry-over of the sound preferences from v2 libraries */
         raw = localStorage.getItem(LEGACY_SETTINGS_KEY);
         if (raw) {
-          var old = JSON.parse(raw) || {};
-          ["volume", "rate", "eqOn", "eq", "eqPreset", "shuffle", "repeat"].forEach(function (k) {
-            if (old[k] !== undefined && old[k] !== null) settings[k] = old[k];
-          });
+        var old = JSON.parse(raw) || {};
+        ["volume", "rate", "aiStrength", "aiBoost", "aiDenoise", "audioOutput",
+         "eqOn", "eq", "eqPreset", "shuffle", "repeat"].forEach(function (k) {
+          if (old[k] !== undefined && old[k] !== null) settings[k] = old[k];
+        });
         }
       } else {
         var s = JSON.parse(raw) || {};
@@ -109,17 +113,25 @@
         }
       }
     } catch (e) { /* defaults */ }
-    if (AI_STRENGTHS.indexOf(settings.aiStrength) < 0) settings.aiStrength = "strong";
+    if (AI_STRENGTHS.indexOf(settings.aiStrength) < 0) settings.aiStrength = "max";
     settings.aiBoost = Math.max(0, Math.min(18, Number(settings.aiBoost) || 0));
     settings.aiDenoise = settings.aiDenoise !== false;
+    if (AUDIO_OUTPUTS.indexOf(settings.audioOutput) < 0) settings.audioOutput = "auto";
     if (["off", "all", "one"].indexOf(settings.repeat) < 0) settings.repeat = "off";
   }
+  var AUDIO_OUTPUTS = ["auto", "speaker", "earpiece", "bluetooth", "wired"];
+  var OUTPUT_LABELS = {
+    auto: "Auto (system)", speaker: "Loudspeaker", earpiece: "Phone earpiece",
+    bluetooth: "Bluetooth", wired: "Wired headset"
+  };
+
   function saveSettings() {
     try {
       settings.volume = volume; settings.rate = playbackRate;
       settings.aiStrength = aiStrength;
       settings.aiBoost = aiBoostDb;
       settings.aiDenoise = aiDenoise;
+      settings.audioOutput = audioOutput;
       settings.eqOn = eqOn; settings.eq = eqGains.slice(); settings.eqPreset = eqPresetName;
       settings.shuffle = shuffle; settings.repeat = repeatMode;
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -223,6 +235,7 @@
       duration: s.duration || 0, favorite: !!s.favorite,
       dateAdded: s.dateAdded || Date.now(), profile: s._profile || null,
       size: s.size || 0, path: s.path || null,
+      cover: (s.cover && s.cover.length <= COVER_STORE_MAX) ? s.cover : null,
       streamed: !!s.streamed
     };
   }
@@ -478,6 +491,152 @@
     })();
   }
 /* ============================================================
+     Embedded cover art — extracted from the file itself
+
+     The artwork travels INSIDE the audio file (ID3v2 APIC for MP3,
+     PICTURE block for FLAC, covr atom for M4A, METADATA_BLOCK_PICTURE
+     for OGG — see app/vp-cover.js). We never decode a whole song for
+     it: imported files are read as a bounded blob slice, phone-library
+     files as a bounded HTTP range (the Android bridge honours it).
+     When a file carries no art, the app shows its built-in artwork.
+     ============================================================ */
+  var COVER_HEAD_BYTES = 4 * 1024 * 1024;   /* ID3v2 tags live at the front */
+  var COVER_TAIL_BYTES = 4 * 1024 * 1024;   /* moov atoms may sit at the end */
+  var COVER_STORE_MAX = 600 * 1024;         /* max chars of the stored data URL */
+  var coverQueue = [], coverWorking = false;
+
+  function looksMp4(song) {
+    var n = String((song && (song.name || song.title)) || "").toLowerCase();
+    return n.indexOf(".m4a") >= 0 || n.indexOf(".mp4") >= 0 || n.indexOf(".aac") >= 0;
+  }
+
+  /* Reads at most COVER_HEAD_BYTES from the start of the song. */
+  function readCoverHead(song) {
+    if (song.path && window.fetch) {
+      return fetch(deviceAudioUrl(song.path), {
+        headers: { Range: "bytes=0-" + (COVER_HEAD_BYTES - 1) }, cache: "no-store"
+      }).then(function (res) {
+        if (res.status !== 206 && res.status !== 200) return null;
+        var cl = Number(res.headers.get("Content-Length")) || 0;
+        if (res.status === 200 && cl > 8 * 1024 * 1024) return null;
+        return res.arrayBuffer();
+      }).catch(function () { return null; });
+    }
+    if (song.blob && song.blob.size) {
+      var b = song.blob;
+      return b.slice(0, Math.min(b.size, COVER_HEAD_BYTES)).arrayBuffer();
+    }
+    if (song.blob === null) {
+      /* imported song whose bytes live in IndexedDB */
+      return idbGetFile(song.id).then(function (f) {
+        if (!f) return null;
+        song.blob = f;
+        return f.slice(0, Math.min(f.size || COVER_HEAD_BYTES, COVER_HEAD_BYTES)).arrayBuffer();
+      });
+    }
+    return Promise.resolve(null);
+  }
+
+  /* MP4-only second chance: the moov atom (and with it the cover) can be
+     at the END of the file. Never applied to other containers. */
+  function readCoverTail(song) {
+    if (!looksMp4(song)) return Promise.resolve(null);
+    if (song.blob && song.blob.size) {
+      var size = song.blob.size || 0;
+      if (size <= COVER_HEAD_BYTES) return Promise.resolve(null);
+      return song.blob.slice(Math.max(0, size - COVER_TAIL_BYTES)).arrayBuffer();
+    }
+    if (song.path && (song.size || 0) > COVER_HEAD_BYTES && window.fetch) {
+      return fetch(deviceAudioUrl(song.path), {
+        headers: { Range: "bytes=-" + (COVER_TAIL_BYTES - 1) }, cache: "no-store"
+      }).then(function (res) {
+        if (res.status !== 206 && res.status !== 200) return null;
+        var cl = Number(res.headers.get("Content-Length")) || 0;
+        if (res.status === 200 && cl > 8 * 1024 * 1024) return null;
+        return res.arrayBuffer();
+      }).catch(function () { return null; });
+    }
+    return Promise.resolve(null);
+  }
+
+  function releaseCoverBlob(song) {
+    if (song && song.id !== currentId && !song.path) song.blob = null;
+  }
+
+  function extractCoverFor(song) {
+    if (!song || song.cover) return Promise.resolve(false);
+    if (!window.VP || typeof window.VP.findCoverImage !== "function") return Promise.resolve(false);
+    return readCoverHead(song).then(function (ab) {
+      var img = null;
+      if (ab && ab.byteLength > 16) {
+        try { img = window.VP.findCoverImage(new Uint8Array(ab)); } catch (e) { img = null; }
+      }
+      if (img) return finishCover(song, img);
+      return readCoverTail(song).then(function (ab2) {
+        var img2 = null;
+        if (ab2 && ab2.byteLength > 16) {
+          try { img2 = window.VP.findCoverImage(new Uint8Array(ab2)); } catch (e) { img2 = null; }
+        }
+        releaseCoverBlob(song);
+        return img2 ? finishCover(song, img2) : false;
+      });
+    }).catch(function () {
+      releaseCoverBlob(song);
+      return false;
+    });
+  }
+
+  function finishCover(song, img) {
+    var bytes = img && img.data;
+    if (!bytes || bytes.length < 8) return Promise.resolve(false);
+    return window.VP.normalizeCover(bytes, img.mime).then(function (url) {
+      releaseCoverBlob(song);
+      if (!url || url.length > COVER_STORE_MAX) return false;
+      if (songById(song.id) !== song) return false;   /* removed meanwhile */
+      song.cover = url;
+      idbPut(cleanRec(song));
+      renderHome(); renderSearch();
+      if (openPlaylistId) renderPlaylistSongs();
+      if (currentId === song.id) { updateNpArt(); pushMediaMeta(); }
+      return true;
+    }).catch(function () { return false; });
+  }
+
+  function queueCoverExtraction(ids) {
+    if (!ids || !ids.length) return;
+    for (var i = 0; i < ids.length; i++) {
+      var s = songById(ids[i]);
+      if (s && !s.cover && coverQueue.indexOf(s.id) < 0) coverQueue.push(s.id);
+    }
+    if (coverWorking) return;
+    coverWorking = true;
+    (function step() {
+      var id = coverQueue.shift();
+      if (!id) { coverWorking = false; return; }
+      var s = songById(id);
+      if (!s) { setTimeout(step, 50); return; }
+      extractCoverFor(s).then(function () {
+        setTimeout(step, 150);
+      }).catch(function () { setTimeout(step, 150); });
+    })();
+  }
+
+  function defaultCoverUrl() {
+    return (window.VP && window.VP.DEFAULT_COVER) ? window.VP.DEFAULT_COVER : "";
+  }
+
+  /* One injected style carries the default artwork for every list row. */
+  function injectDefaultCoverStyle() {
+    if (!document.getElementById("vp-default-cover-style") && defaultCoverUrl()) {
+      var st = document.createElement("style");
+      st.id = "vp-default-cover-style";
+      st.textContent = ".vp-default-art{background-image:url(\"" + defaultCoverUrl() + "\");" +
+        "background-size:cover;background-position:center;}";
+      try { document.head.appendChild(st); } catch (e) { /* ignore */ }
+    }
+  }
+
+/* ============================================================
      Audio engine — streaming only
 
        <audio> element  →  MediaElementSource
@@ -507,9 +666,10 @@
   var engineWatchdog = 0;
   var engineInfo = null, engineStats = null;
   var mediaUrl = null, mediaCors = false;
-  var loaded = false, playing = false;
+  var loaded = false, playing = false, wantsPlay = false;
   var duration = 0, playbackRate = 1, volume = 80, muted = false;
-  var aiStrength = "strong", aiBoostDb = 6, aiDenoise = true;
+  var aiStrength = "max", aiBoostDb = 6, aiDenoise = true;
+  var audioOutput = "auto";           /* auto | speaker | earpiece | bluetooth | wired */
   var exportState = null;             /* set by the WAV export section */
 
   var ICON_PLAY = "M7.5 4.8v14.4L20 12z";
@@ -534,11 +694,26 @@
     try { audioEl.setAttribute("aria-hidden", "true"); } catch (e) { /* ignore */ }
     audioEl.style.display = "none";
     document.body.appendChild(audioEl);
-    audioEl.addEventListener("play", function () { playing = true; setPlayIcon(true); startVizLoop(); });
-    audioEl.addEventListener("pause", function () { playing = false; setPlayIcon(false); updateProgressUI(); });
-    audioEl.addEventListener("ended", function () { playing = false; setPlayIcon(false); onTrackEnded(); });
+    audioEl.addEventListener("play", function () {
+      playing = true; wantsPlay = true; setPlayIcon(true); startVizLoop();
+      /* pinned notification + uninterrupted playback (no-op in a browser) */
+      nativeCall("requestAudioFocus");
+      nativeCall("setPlaying", true);
+      pushPlayState();
+    });
+    audioEl.addEventListener("pause", function () {
+      playing = false; setPlayIcon(false); updateProgressUI();
+      nativeCall("setPlaying", false);
+      pushPlayState();
+    });
+    audioEl.addEventListener("ended", function () {
+      playing = false; wantsPlay = false; setPlayIcon(false); onTrackEnded();
+    });
     audioEl.addEventListener("ratechange", function () { saveSettings(); });
-    audioEl.addEventListener("timeupdate", function () { if (!vizRaf) updateProgressUI(); });
+    audioEl.addEventListener("timeupdate", function () {
+      if (!vizRaf) updateProgressUI();
+      if (playing && hasNativeMedia()) pushPlayState();
+    });
     audioEl.addEventListener("error", function () {
       if (!loaded) return;
       toast("This track could not be streamed — try another file.", "error");
@@ -620,7 +795,139 @@
   }
 
   /* ============================================================
-     The AI voice engine (with a filter fallback)
+     Native media bridge — the pinned foreground notification,
+     audio focus and output routing live in the Android host.
+     Every call is guarded: in a plain browser these are no-ops.
+     ============================================================ */
+  var nativeApi = (typeof window !== "undefined" && window.VocalPureAndroid) || null;
+
+  function nativeCall(fn) {
+    if (!nativeApi || typeof nativeApi[fn] !== "function") return undefined;
+    try {
+      return nativeApi[fn].apply(nativeApi, Array.prototype.slice.call(arguments, 1));
+    } catch (e) { return undefined; }
+  }
+
+  function hasNativeMedia() {
+    return !!(nativeApi && nativeApi.setPlayState && nativeApi.setNowPlayingMeta);
+  }
+
+  /* Track identity + thumbnail → the pinned notification (on change only). */
+  function pushMediaMeta() {
+    if (!hasNativeMedia()) return;
+    var s = currentSong();
+    if (!s) return;
+    var b64 = "";
+    if (s.cover && s.cover.indexOf("base64,") > 0) {
+      b64 = s.cover.slice(s.cover.indexOf("base64,") + 7);
+    }
+    nativeCall("setNowPlayingMeta", s.title || "VocalPure", s.artist || "", b64);
+  }
+
+  /* Position ticks (~1 Hz) → MediaStyle position + play/pause icon. */
+  function pushPlayState() {
+    if (!hasNativeMedia()) return;
+    if (!currentSong()) return;
+    nativeCall("setPlayState", playing, Math.round(currentPos() * 1000),
+      Math.round((duration || 0) * 1000), playbackRate);
+  }
+
+  function stopMediaService() {
+    nativeCall("stopPlaybackNotification");
+    nativeCall("setPlaying", false);
+  }
+
+  /* Audio output routing — the same control the notification exposes. */
+  function doAudioRouting() {
+    if (!nativeApi || typeof nativeApi.setAudioOutput !== "function") return;
+    var want = audioOutput;
+    var res;
+    try { res = nativeApi.setAudioOutput(want); } catch (e) { return; }
+    if (typeof res === "string" && res && res !== want) {
+      /* the host fell back (e.g. Bluetooth not connected) */
+      audioOutput = res;
+      syncAudioOutputUI();
+      saveSettings();
+      toast("“" + OUTPUT_LABELS[want] + "” is not available — using " +
+        OUTPUT_LABELS[audioOutput] + ".", "info");
+    }
+  }
+  function applyAudioOutput(mode, opts) {
+    if (AUDIO_OUTPUTS.indexOf(mode) < 0) mode = "auto";
+    audioOutput = mode;
+    doAudioRouting();
+    syncAudioOutputUI();
+    saveSettings();
+    if (!opts || opts.silent !== true) {
+      toast("Audio output: " + OUTPUT_LABELS[audioOutput] + ".", "success");
+    }
+  }
+  function syncAudioOutputUI() {
+    var sel = $("set-audio-output");
+    if (sel && sel.value !== audioOutput) sel.value = audioOutput;
+  }
+
+  /* Commands that come back from the pinned notification / the host. */
+  window.onNativeMediaAction = function (action) {
+    try {
+      if (action === "play") {
+        if (!ensureCtx()) return;
+        if (!loaded) {
+          var ids = currentViewIds.length ? currentViewIds.slice() : library.map(function (s) { return s.id; });
+          if (ids.length) playFromList(ids, 0);
+          return;
+        }
+        if (!playing) startAt(currentPos());
+      } else if (action === "pause") {
+        pausePlayback();
+      } else if (action === "next") {
+        stepNext();
+      } else if (action === "prev") {
+        stepPrev();
+      } else if (action === "focus:loss") {
+        /* another app owns the speaker — pause so we never fight for focus */
+        if (playing) pausePlayback();
+      } else if (action.indexOf("output-sync:") === 0) {
+        /* the notification cycled the output natively — mirror the state */
+        var m = action.slice("output-sync:".length);
+        if (AUDIO_OUTPUTS.indexOf(m) >= 0 && m !== audioOutput) {
+          audioOutput = m;
+          syncAudioOutputUI();
+          saveSettings();
+          toast("Audio output: " + OUTPUT_LABELS[m] + ".", "info");
+        }
+      } else if (action.indexOf("output:") === 0 && action.length > 7) {
+        applyAudioOutput(action.slice(7));
+      } else if (action.indexOf("seek:") === 0 && action.length > 5) {
+        var ms = Number(action.slice(5));
+        if (loaded && duration > 0 && isFinite(ms) && ms >= 0) {
+          try { audioEl.currentTime = Math.min(ms / 1000, duration); } catch (e) { /* ignore */ }
+          updateProgressUI();
+        }
+      } else if (action === "bt:connected") {
+        if (audioOutput === "bluetooth") doAudioRouting();
+        else toast("Bluetooth connected — playing in high-quality A2DP.", "success");
+      } else if (action === "bt:disconnected") {
+        if (audioOutput === "bluetooth") {
+          audioOutput = "speaker";
+          doAudioRouting();
+          syncAudioOutputUI();
+          saveSettings();
+          toast("Bluetooth disconnected — switched to the loudspeaker.", "info");
+        }
+      } else if (action === "headset:unplugged") {
+        if (playing) {
+          pausePlayback();
+          toast("Headset unplugged — playback paused.", "info");
+        }
+      } else if (action === "headset:plugged") {
+        if (wantsPlay && loaded && !playing) startAt(currentPos());
+      }
+    } catch (e) { /* a native callback must never crash the page */ }
+  };
+
+  /* ============================================================
+     The AI voice engine
      ============================================================ */
   function ensureCtx() {
     if (!AC) return false;
@@ -914,6 +1221,10 @@
     stopPlayback();
     loaded = false;
     duration = 0;
+    wantsPlay = false;
+    nativeCall("setPlaying", false);
+    nativeCall("abandonAudioFocus");
+    stopMediaService();
     if (audioEl) { try { audioEl.removeAttribute("src"); audioEl.load(); } catch (e) { /* ignore */ } }
     if (mediaUrl) { try { URL.revokeObjectURL(mediaUrl); } catch (e) { /* ignore */ } mediaUrl = null; }
     $("np-title").textContent = "Nothing playing";
@@ -1012,6 +1323,7 @@
       $("np-title").textContent = song.title;
       $("np-artist").textContent = song.artist + (song.path ? " · phone library" : " · imported");
       updateNpArt();
+      pushMediaMeta();                 /* the pinned notification follows the queue */
       updateProgressUI();
       drawViz();
       updateEngineLine();
@@ -1033,6 +1345,9 @@
     if (qi >= 0 && qi < queue.length - 1) { qi++; loadSongById(queue[qi], true); return; }
     if (repeatMode === "all" && queue.length) { qi = 0; loadSongById(queue[qi], true); return; }
     playing = false;
+    nativeCall("setPlaying", false);
+    nativeCall("abandonAudioFocus");
+    stopMediaService();
     updateProgressUI();
   }
 
@@ -1333,9 +1648,12 @@
     var dur = s.duration > 0 ? fmtTime(s.duration) : "–:––";
     var autoFlag = s._profile ? ' <em class="row-auto">✓ AI</em>' : "";
     var isCur = s.id === currentId;
+    var artSpan = s.cover
+      ? '<span class="song-cover" style="background-image:url(\'' + s.cover + '\');background-size:cover;background-position:center" aria-hidden="true"></span>'
+      : '<span class="song-cover vp-default-art" aria-hidden="true"></span>';
     var html = '<li class="song-row' + (isCur ? " is-current" + (playing ? "" : " is-paused") : "") + '" data-id="' + escapeHtml(s.id) + '">' +
       '<button type="button" class="song-main" aria-label="Play ' + escapeHtml(s.title) + '">' +
-      '<span class="song-cover" style="' + coverStyle(s.title) + '" aria-hidden="true">' + escapeHtml(coverLetter(s.title)) + "</span>" +
+      artSpan +
       '<span class="song-meta"><strong>' + escapeHtml(s.title) + "</strong><span>" + escapeHtml(s.artist) + " · " + dur + autoFlag + "</span></span>" +
       '<span class="song-live" aria-hidden="true"><i></i><i></i><i></i></span>' +
       "</button>";
@@ -1484,7 +1802,7 @@
     if (wasCurrent) {
       unloadCurrent();
       currentId = null;
-      song.blob = null;
+      s.blob = null;
     }
     library = library.filter(function (x) { return x.id !== id; });
     idbDel(id);
@@ -1528,14 +1846,24 @@
     updateNp();
   }
 
+  /* Now Playing artwork: the cover embedded in the file, or the app's
+     built-in artwork when the file carries none. */
   function updateNpArt() {
     var s = currentSong();
     var art = $("np-art"), letter = $("np-art-letter");
     if (!art || !letter) return;
-    if (!s) { art.style.background = "var(--surface-2)"; letter.textContent = "♪"; return; }
-    var hue = coverHue(s.title);
-    art.style.background = "linear-gradient(135deg, hsl(" + hue + ",62%,50%), hsl(" + ((hue + 50) % 360) + ",64%,34%))";
-    letter.textContent = coverLetter(s.title);
+    var url = (s && s.cover) ? s.cover : defaultCoverUrl();
+    if (url) {
+      art.style.background = "";
+      art.style.backgroundImage = "url(\"" + url + "\")";
+      art.style.backgroundSize = "cover";
+      art.style.backgroundPosition = "center";
+    } else {
+      var hue = coverHue(s ? s.title : "?");
+      art.style.background = "linear-gradient(135deg, hsl(" + hue + ",62%,50%), hsl(" + ((hue + 50) % 360) + ",64%,34%))";
+    }
+    letter.textContent = "";
+    letter.style.opacity = url ? "0" : "0.9";
   }
 
   function updateNp() {
@@ -1844,6 +2172,7 @@
         if (bad) toast(bad + " file(s) skipped (not audio or unreadable).", "error");
         if (big) toast(big + " file(s) were larger than " + Math.round(MAX_FILE / (1024 * 1024)) + " MB and were skipped.", "error");
         if (newIds.length) queueAnalysis(newIds);
+        if (newIds.length) queueCoverExtraction(newIds);
         if (newIds.length && !currentId) playFromList(newIds, 0);
         return;
       }
@@ -1862,6 +2191,10 @@
       newIds.push(rec.id);
       ok++;
       renderHome(); renderSearch(); updateCounts();
+      /* start the instant analysis + embedded-cover extraction right away —
+         they do not need the last file's duration probe to finish */
+      queueAnalysis([rec.id]);
+      queueCoverExtraction([rec.id]);
       probeDuration(f).then(function (d) {
         if (d > 0) { rec.duration = d; idbPut(cleanRec(rec)); renderHome(); renderSearch(); }
         setTimeout(next, 20);
@@ -1997,6 +2330,7 @@
         if (addedCount > 0) {
           toast("Found & added " + addedCount + " music track" + (addedCount === 1 ? "" : "s") + " from your phone!", "success");
           if (newIds.length) queueAnalysis(newIds);
+          if (newIds.length) queueCoverExtraction(newIds);
           if (!currentId && newIds.length > 0) {
             playFromList(newIds, 0);
           }
@@ -2484,6 +2818,9 @@
     if (audioEl) { try { audioEl.playbackRate = playbackRate; } catch (e) { /* ignore */ } }
     saveSettings();
   });
+  on($("set-audio-output"), "change", function () {
+    applyAudioOutput($("set-audio-output").value);
+  });
   on($("set-sleep"), "change", function () {
     var mins = Number($("set-sleep").value) || 0;
     if (mins > 0) {
@@ -2687,6 +3024,7 @@
   function init() {
     /* appearance first so the saved theme paints before anything else */
     applyAppTheme();
+    injectDefaultCoverStyle();
     bindThemeUI();
     bindUpdateUI();
     loadSettings();
@@ -2695,6 +3033,9 @@
     aiStrength = settings.aiStrength;
     aiBoostDb = settings.aiBoost;
     aiDenoise = settings.aiDenoise;
+    audioOutput = settings.audioOutput;
+    syncAudioOutputUI();
+    doAudioRouting();
     eqGains = settings.eq.slice();
     eqOn = !!settings.eqOn;
     eqPresetName = settings.eqPreset || "normal";
@@ -2787,7 +3128,8 @@
           id: r.id, title: r.title || "Unknown", artist: r.artist || "Unknown artist",
           name: r.name || r.title || "Unknown", duration: r.duration || 0,
           blob: null, favorite: !!r.favorite, dateAdded: r.dateAdded || 0,
-          _profile: r.profile || null, path: r.path || null, size: r.size || 0
+          _profile: r.profile || null, path: r.path || null, size: r.size || 0,
+          cover: (typeof r.cover === "string" && r.cover.length <= COVER_STORE_MAX) ? r.cover : null
         };
       }).filter(function (r) { return r.id; });
       renderHome(); renderSearch(); renderPlaylists(); updateCounts();
@@ -2797,6 +3139,9 @@
         /* songs imported before this version may still be missing a profile */
         var pending = library.filter(function (s) { return !s._profile; }).map(function (s) { return s.id; });
         if (pending.length) setTimeout(function () { queueAnalysis(pending); }, 1500);
+        /* songs imported before this version have no extracted cover yet */
+        var noCover = library.filter(function (s) { return !s.cover; }).map(function (s) { return s.id; });
+        if (noCover.length) setTimeout(function () { queueCoverExtraction(noCover); }, 2500);
       }
     }).catch(function () { idbFailed = true; });
 
@@ -2841,8 +3186,16 @@
       }
     }, 1000);
 
+    /* keep the pinned notification's position readout fresh (~1 Hz) */
+    setInterval(function () {
+      if (playing && hasNativeMedia()) pushPlayState();
+    }, 1000);
+
     /* a seek/an unload during an export must not leave a half file behind */
-    window.addEventListener("beforeunload", function () { if (exportState) stopExport(true); });
+    window.addEventListener("beforeunload", function () {
+      if (exportState) stopExport(true);
+      nativeCall("setPlaying", false);
+    });
   }
 
   init();

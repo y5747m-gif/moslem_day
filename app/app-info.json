@@ -1,25 +1,18 @@
 {
-  "version": "2.11.0",
+  "version": "2.12.0",
   "updated": "Sep 20, 2026",
-  "minAndroid": "8.0+",
+  "minAndroid": "Android 8.0+",
   "tagline": "Standalone player with an on-device AI voice engine — music removed automatically",
   "downloadPage": "https://github.com/y5747m-gif/moslem_day",
   "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
-    "Fail-closed voice isolation: if the AI engine cannot start, playback stays silent with a clear reason instead of playing the music unfiltered — tap “Re-learn song” in Settings to retry",
-    "New sustained-instrument suppressor: organs, drones and unchanging instrumental tones fade out within about 2 seconds (fully muted at Max)",
-    "Strong is now the default separation strength",
-    "Appearance applies everywhere: themes repaint the whole background, wallpaper mode turns cards translucent, and every change shows a confirmation",
-    "4K Precision mode: maximum AI separation with a tighter gate and near-zero residual floor for more exact music removal",
-    "Maximum source quality: streamed playback keeps the original file at its highest available quality without adding compression",
-    "Pinned Arabic notice highlighting high-quality audio and precise music removal",
-    "Draggable seek bar with pointer capture for smooth mouse, touch and stylus seeking, plus keyboard seek controls",
-    "Large-file fix: songs are streamed straight into the audio engine instead of being decoded into memory, so long recordings no longer exhaust RAM and crash the app",
-    "New AI voice engine (AudioWorklet): adaptive spectral separation that learns each track while it plays — centre-channel coherence, pitch/harmonic tracking, syllabic modulation and live voice/music profiles",
-    "No music mode anywhere: the mode selector, stem mixer, music fader and karaoke/mix exports are gone — every song plays as pure voice",
-    "Live AI panel: voice activity, music-cut dB, tracked pitch, engine state and processing latency",
-    "Safer exports: the purified voice is recorded while the song plays and written to the WAV in chunks (plus a native finishWav header patch), so a two-hour file is as safe as a three-minute one",
-    "Streamed phone-library playback with HTTP range support in the Android host, so seeking works on huge files without copying them into JavaScript",
-    "Offline & private: 100% on-device processing; songs never leave your phone"
+    "100% Isolation is now the default: the Max preset applies the pure (hard) mask — everything the engine classifies as music is silenced completely, leaving only the human voice",
+    "New pure separation path at Max: a hard 115 Hz–9 kHz vocal band, a zero residual floor and a 0.35 logit gate — the sustained-instrument suppressor mutes drones and unchanging tones within about 2 seconds",
+    "Cover art: the artwork embedded in your files is now extracted and shown — ID3v2 APIC (MP3), FLAC PICTURE, M4A/MP4 covr (moov at the front or the end) and OGG METADATA_BLOCK_PICTURE — with a built-in artwork when a file carries none",
+    "Pinned playback notification: a persistent top-bar notification while a song plays — cover thumbnail, title and artist, play/pause, next/previous and a one-tap output switch",
+    "The notification keeps working with the app in the background, driven by a foreground media service (MediaSession + MediaStyle)",
+    "Stable playback on external speakers: fixed stuttering and cut-outs on Bluetooth and wired output with proper audio focus, a live audio-focus listener (pause on loss, resume on gain) and a wake lock during playback",
+    "Audio output routing: Auto / Loudspeaker / Earpiece / Bluetooth / Wired — the same selector in Settings and in the notification, with automatic fallback when a device disconnects",
+    "Bluetooth and headset state tracking: A2DP connect/disconnect, headset plug/unplug and noisy-cable events re-route correctly and never tear the player down mid-song"
   ]
 }

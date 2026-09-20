@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Verification harnesses for the VocalPure app (not shipped with the app or the website).",
   "scripts": {
-    "test": "node verify_app.js && node test_ai_engine.js && node smoke_app.js && node smoke_site.js",
+    "test": "node verify_app.js && node test_ai_engine.js && node test_cover.js && node smoke_app.js && node smoke_site.js",
     "test:strict": "node test_strict_acceptance.js",
     "test:release": "npm test && npm run test:strict",
     "verify": "node verify_app.js",
