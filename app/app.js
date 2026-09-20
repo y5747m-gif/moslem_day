@@ -82,7 +82,7 @@
   var LEGACY_SETTINGS_KEY = "vp-app-settings-v2";
   var settings = {
     volume: 80, rate: 1,
-    aiStrength: "balanced", aiBoost: 6, aiDenoise: true,
+    aiStrength: "strong", aiBoost: 6, aiDenoise: true,
     eqOn: true, eq: [0, 0, 0, 0, 0], eqPreset: "normal",
     shuffle: false, repeat: "off"
   };
@@ -109,7 +109,7 @@
         }
       }
     } catch (e) { /* defaults */ }
-    if (AI_STRENGTHS.indexOf(settings.aiStrength) < 0) settings.aiStrength = "balanced";
+    if (AI_STRENGTHS.indexOf(settings.aiStrength) < 0) settings.aiStrength = "strong";
     settings.aiBoost = Math.max(0, Math.min(18, Number(settings.aiBoost) || 0));
     settings.aiDenoise = settings.aiDenoise !== false;
     if (["off", "all", "one"].indexOf(settings.repeat) < 0) settings.repeat = "off";
@@ -491,36 +491,32 @@
      memory as a 3 MB one — the old "decode the whole file into an
      AudioBuffer" path is gone, which is what used to crash the app
      on large files.
+
+     The graph is fail-closed: the media source is connected ONLY to
+     the AI node (startEngine() is the single place that wires it), so
+     while the engine loads — or if it cannot start on a device — the
+     song stays silent instead of playing unfiltered. There is no
+     direct path, no filter fallback and no unity-mask bypass.
      ============================================================ */
   var AC = window.AudioContext || window.webkitAudioContext;
   var actx = null, master = null, analyser = null, comp = null, eqIn = null, voiceGain = null;
   var eqBands = [], freqData = null;
-  var audioEl = null, mediaSrc = null, aiNode = null, filterOut = null;
-  var engineKind = "none";            /* "ai" | "filters" | "none" */
+  var audioEl = null, mediaSrc = null, aiNode = null;
+  var engineKind = "none";            /* "ai" | "starting" | "error" | "none" */
+  var engineErrorReason = "";
+  var engineWatchdog = 0;
   var engineInfo = null, engineStats = null;
   var mediaUrl = null, mediaCors = false;
   var loaded = false, playing = false;
   var duration = 0, playbackRate = 1, volume = 80, muted = false;
-  var aiStrength = "balanced", aiBoostDb = 6, aiDenoise = true;
+  var aiStrength = "strong", aiBoostDb = 6, aiDenoise = true;
   var exportState = null;             /* set by the WAV export section */
 
   var ICON_PLAY = "M7.5 4.8v14.4L20 12z";
   var ICON_PAUSE = "M6.5 4h3.6v16H6.5zM13.9 4h3.6v16h-3.6z";
 
-  /* ---- shared node builders (fallback chain) ---- */
+  /* ---- shared node builders ---- */
   function cGain(C, v) { var g = C.createGain(); g.gain.value = v; return g; }
-  function cFilter(C, type, freq, q) {
-    var f = C.createBiquadFilter();
-    f.type = type; f.frequency.value = freq;
-    f.Q.value = (q === undefined ? 0.71 : q);
-    return f;
-  }
-  function cComp(C) {
-    var c = C.createDynamicsCompressor();
-    c.threshold.value = -10; c.knee.value = 10; c.ratio.value = 4;
-    c.attack.value = 0.005; c.release.value = 0.16;
-    return c;
-  }
   function dbToGain(db) { return Math.pow(10, (Number(db) || 0) / 20); }
 
   /* ============================================================
@@ -548,7 +544,12 @@
       toast("This track could not be streamed — try another file.", "error");
     });
     try { mediaSrc = actx.createMediaElementSource(audioEl); } catch (e) { mediaSrc = null; }
-    if (mediaSrc) mediaSrc.connect(voiceGain);      /* direct until the AI node is ready */
+    /* Fail-closed by design: the source is left UNCONNECTED here, so the song
+       is silent until the AI voice engine is actually processing it. There is
+       deliberately no direct mediaSrc → output path anywhere in this app —
+       unfiltered music must never be audible, not even for a moment while the
+       engine loads. startEngine() below is the only place that connects the
+       source, and only to the AI node. */
     return audioEl;
   }
 
@@ -662,65 +663,97 @@
   }
 
   /**
-   * Boots the AI separation worklet. The module is built at runtime from the
-   * factory in app/vp-ai-engine.js and loaded through a blob: URL, so it works
-   * from file:// inside the Android WebView without a second fetch.
+   * Puts the engine into the failed state: playback stays silent (the source
+   * is never connected around the AI node) and the UI shows exactly why, with
+   * a way to retry. There is deliberately no weak "filter fallback" any more:
+   * playing the music nearly unfiltered while claiming it was removed is
+   * worse than saying plainly that the engine could not start.
    */
-  function startEngine() {
-    if (engineKind !== "none" || !actx || !mediaSrc) return;
-    var api = window.VPAIEngine;
-    if (actx.audioWorklet && api && typeof api.factory === "function" && window.Blob && window.URL && window.AudioWorkletNode) {
-      try {
-        var source = "(" + api.factory.toString() + ")();";
-        var modUrl = URL.createObjectURL(new Blob([source], { type: "application/javascript" }));
-        actx.audioWorklet.addModule(modUrl).then(function () {
-          try { URL.revokeObjectURL(modUrl); } catch (e) { /* ignore */ }
-          aiNode = new AudioWorkletNode(actx, "vp-ai-voice", {
-            numberOfInputs: 1, numberOfOutputs: 1,
-            outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit"
-          });
-          aiNode.port.onmessage = onEngineMessage;
-          try { mediaSrc.disconnect(voiceGain); } catch (e) { /* ignore */ }
-          mediaSrc.connect(aiNode);
-          aiNode.connect(voiceGain);
-          engineKind = "ai";
-          sendEngineParams();
-          updateEngineLine(); updateNp();
-          toast("AI voice engine ready — music is removed automatically.", "success");
-        }).catch(function () { useFilterEngine(); });
-      } catch (e) { useFilterEngine(); }
-    } else {
-      useFilterEngine();
-    }
+  function engineError(reason) {
+    if (engineKind === "error") return;
+    engineKind = "error";
+    engineErrorReason = reason || "unknown error";
+    if (engineWatchdog) { try { clearTimeout(engineWatchdog); } catch (e) { /* ignore */ } engineWatchdog = 0; }
+    updateEngineLine(); updateNp();
+    toast("AI voice engine unavailable — " + engineErrorReason, "error");
   }
 
   /**
-   * Fallback for WebViews without AudioWorklet: a real-time vocal-band
-   * isolation chain (mid extraction + presence shaping) — still voice only,
-   * just without the adaptive spectral model.
+   * Boots the AI separation worklet. The module is built at runtime from the
+   * factory in app/vp-ai-engine.js and loaded through a blob: URL, so it works
+   * from file:// inside the Android WebView without a second fetch.
+   *
+   * Fail-closed: until the AI node exists and is wired in, the media source
+   * stays disconnected (silent). A watchdog converts a hung module load into
+   * a visible error instead of endless unfiltered playback.
    */
-  function useFilterEngine() {
-    if (engineKind === "filters" || !actx || !mediaSrc) return;
+  function startEngine() {
+    if (engineKind === "ai" || engineKind === "starting" || !actx) return;
+    engineKind = "starting";
+    updateEngineLine(); updateNp();
+    if (!mediaSrc) {
+      engineError("the audio graph could not be created on this device.");
+      return;
+    }
+    var api = window.VPAIEngine;
+    if (!actx.audioWorklet || !api || typeof api.factory !== "function" || !window.Blob || !window.URL || !window.AudioWorkletNode) {
+      engineError("this device has no AudioWorklet. Update Android System WebView (or Chrome) and try again — open Settings → “Re-learn song” to retry.");
+      return;
+    }
+    var settled = false;
+    function failOnce(reason) {
+      if (settled) return;
+      settled = true;
+      engineError(reason);
+    }
+    if (engineWatchdog) { try { clearTimeout(engineWatchdog); } catch (e) { /* ignore */ } }
+    engineWatchdog = setTimeout(function () {
+      engineWatchdog = 0;
+      failOnce("the AI module took too long to load (over 6 s). Open Settings → “Re-learn song” to retry.");
+    }, 6000);
     try {
-      var mono = actx.createGain();
-      try { mono.channelCount = 1; mono.channelCountMode = "explicit"; } catch (e) { /* ignore */ }
-      var hp = cFilter(actx, "highpass", 145);
-      var body = cFilter(actx, "peaking", 320, 0.9); body.gain.value = 2.5;
-      var pres = cFilter(actx, "peaking", 2600, 1.0); pres.gain.value = 3.5;
-      var lp = cFilter(actx, "lowpass", 6200);
-      var c = cComp(actx);
-      var make = cGain(actx, 1.25);
-      filterOut = actx.createGain();
-      mediaSrc.connect(mono);
-      mono.connect(hp); hp.connect(body); body.connect(pres); pres.connect(lp);
-      lp.connect(c); c.connect(make); make.connect(filterOut);
-      try { mediaSrc.disconnect(voiceGain); } catch (e) { /* ignore */ }
-      filterOut.connect(voiceGain);
-      engineKind = "filters";
-      updateEngineLine(); updateNp();
+      var source = "(" + api.factory.toString() + ")();";
+      var modUrl = URL.createObjectURL(new Blob([source], { type: "application/javascript" }));
+      actx.audioWorklet.addModule(modUrl).then(function () {
+        if (settled) return;
+        try { URL.revokeObjectURL(modUrl); } catch (e) { /* ignore */ }
+        var node = null;
+        try {
+          node = new AudioWorkletNode(actx, "vp-ai-voice", {
+            numberOfInputs: 1, numberOfOutputs: 1,
+            outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit"
+          });
+        } catch (e) {
+          failOnce("the AI voice node could not be created (" + (e && e.message ? e.message : "unknown error") + "). Open Settings → “Re-learn song” to retry.");
+          return;
+        }
+        aiNode = node;
+        aiNode.port.onmessage = onEngineMessage;
+        /* The ONLY routing in this app: source → AI → voice chain. The
+           argument-free disconnect() is used on purpose: old WebViews throw
+           on the selective disconnect(node) form, which would otherwise leave
+           a second, unfiltered path connected next to the engine. */
+        try { mediaSrc.disconnect(); } catch (e) { /* ignore */ }
+        try { aiNode.disconnect(); } catch (e) { /* ignore */ }
+        try {
+          mediaSrc.connect(aiNode);
+          aiNode.connect(voiceGain);
+        } catch (e) {
+          failOnce("the audio graph could not be wired (" + (e && e.message ? e.message : "unknown error") + ").");
+          return;
+        }
+        settled = true;
+        if (engineWatchdog) { try { clearTimeout(engineWatchdog); } catch (e) { /* ignore */ } engineWatchdog = 0; }
+        sendEngineParams();
+        updateEngineLine(); updateNp();
+        /* engineKind flips to "ai" when the worklet posts "ready" (or the
+           first stats batch); until then playback stays silent-but-armed and
+           starts sounding automatically the moment the engine is live. */
+      }).catch(function (err) {
+        failOnce("the AI module could not be loaded" + (err && err.message ? " (" + err.message + ")" : "") + ". Update Android System WebView (or Chrome), then open Settings → “Re-learn song” to retry.");
+      });
     } catch (e) {
-      engineKind = "none";
-      updateEngineLine();
+      failOnce("the AI engine could not start (" + (e && e.message ? e.message : "unknown error") + ").");
     }
   }
 
@@ -740,6 +773,11 @@
     var d = (e && e.data) || {};
     if (d.t === "ready") {
       engineInfo = d;
+      if (engineKind !== "ai") {
+        engineKind = "ai";
+        sendEngineParams();
+        toast("AI voice engine ready — music is removed automatically.", "success");
+      }
       updateEngineLine();
       updateNp();
       return;
@@ -767,6 +805,11 @@
 
   function onEngineStats(d) {
     engineStats = d;
+    if (engineKind === "starting") {
+      /* Stats flowing means the processor is alive even if "ready" was lost. */
+      engineKind = "ai";
+      updateEngineLine(); updateNp();
+    }
     updateAIMeters(d);
     var song = currentSong();
     if (!song) return;
@@ -827,8 +870,19 @@
     return p;
   }
 
+  var lastEngineWarn = 0;
   function startAt(offset) {
     if (!ensureCtx() || !loaded || !audioEl) return;
+    if (!mediaSrc) {
+      /* Without a media source the element would play straight to the
+         speakers, bypassing the engine — so refuse instead of leaking music. */
+      toast("Audio output is unavailable on this device — playback blocked so unfiltered music never plays.", "error");
+      return;
+    }
+    if (engineKind === "error" && Date.now() - lastEngineWarn > 8000) {
+      lastEngineWarn = Date.now();
+      toast("No sound: " + engineErrorReason, "error");
+    }
     var d = duration || (isFinite(audioEl.duration) ? audioEl.duration : 0);
     offset = Math.max(0, Math.min(offset, Math.max(d - 0.05, 0)));
     try { if (Math.abs((audioEl.currentTime || 0) - offset) > 0.05) audioEl.currentTime = offset; } catch (e) { /* ignore */ }
@@ -1008,7 +1062,7 @@
        engine's four canonical preset names while making that explicit button
        select the exact same high-precision path as Max. */
     if (name === "precision") name = "max";
-    if (AI_STRENGTHS.indexOf(name) < 0) name = "balanced";
+    if (AI_STRENGTHS.indexOf(name) < 0) name = "strong";
     aiStrength = name;
     sendEngineParams();
     updateAIUI();
@@ -1061,47 +1115,47 @@
     var song = currentSong();
     var p = song ? song._profile : null;
     var label = engineKind === "ai" ? "AI voice isolation"
-      : (engineKind === "filters" ? "Voice filter isolation" : "Starting AI engine…");
+      : (engineKind === "error" ? "AI engine unavailable" : "Starting AI engine…");
     var strat = $("np-strategy");
     if (strat) strat.textContent = label;
     var detail = $("np-strategy-detail");
     if (detail) {
-      if (!song) detail.textContent = "Add a song — the AI analyzes it while it plays and removes the music.";
-      else if (engineKind === "none") detail.textContent = "Preparing the on-device engine…";
+      if (engineKind === "error") {
+        detail.textContent = engineErrorReason + " Playback stays silent so unfiltered music never plays.";
+      } else if (!song) detail.textContent = "Add a song — the AI analyzes it while it plays and removes the music.";
+      else if (engineKind !== "ai") detail.textContent = "Loading the on-device AI engine — sound starts automatically when it is ready.";
       else if (p && p.live) {
         detail.textContent = "voice " + Math.round((p.voice || 0) * 100) + "% of the time · music cut " +
           Math.abs(Math.round(p.cutDb || 0)) + " dB · clarity " + p.clarity + "%";
       } else if (p) {
         detail.textContent = "analysed on import: " + Math.round((p.centerRatio || 0) * 100) +
           "% of the voice band is centre-locked" + (p.stereo === false ? " · mono file" : "");
-      } else if (engineKind === "ai") {
-        detail.textContent = "listening to this track — the engine refines its voice profile while it plays.";
       } else {
-        detail.textContent = "voice-band isolation is active on this device.";
+        detail.textContent = "listening to this track — the engine refines its voice profile while it plays.";
       }
     }
     var el = $("engine-line");
     if (el) {
-      if (engineKind === "ai" && p && p.live) {
+      if (engineKind === "error") {
+        el.textContent = "⚠️ The AI engine could not start: " + engineErrorReason + " Playback stays silent so unfiltered music never plays.";
+      } else if (engineKind === "ai" && p && p.live) {
         el.innerHTML = "AI: the music is <b>removed live</b> from the stream — voice detected " +
           Math.round((p.voice || 0) * 100) + "% of the time, music attenuated <b>" +
           Math.abs(Math.round(p.cutDb || 0)) + " dB</b>. There is no music mode: only the voice is played.";
       } else if (engineKind === "ai") {
         el.innerHTML = "AI engine <b>online</b> — it learns this exact track while it plays and removes the music automatically. Only the voice is ever played.";
-      } else if (engineKind === "filters") {
-        el.innerHTML = "This device has no AudioWorklet, so the built-in <b>voice-band filter</b> isolates the voice instead of the adaptive model.";
       } else {
-        el.innerHTML = "Starting the on-device AI engine…";
+        el.innerHTML = "Starting the on-device AI engine… sound begins automatically once it is ready.";
       }
     }
     var st = $("set-ai-status");
     if (st) {
-      if (engineKind === "ai") {
+      if (engineKind === "error") {
+        st.textContent = "Unavailable — " + engineErrorReason;
+      } else if (engineKind === "ai") {
         st.textContent = "AI engine online" + (engineInfo
           ? " · " + Math.round(engineInfo.latencyMs || 0) + " ms latency · " + (engineInfo.fft || 1024) + "-point FFT · " + Math.round((engineInfo.sr || 48000) / 1000) + " kHz"
           : "");
-      } else if (engineKind === "filters") {
-        st.textContent = "Filter engine (this device has no AudioWorklet)";
       } else {
         st.textContent = "Starting…";
       }
@@ -1487,7 +1541,10 @@
   function updateNp() {
     var s = currentSong();
     var chip = $("np-mode-chip");
-    if (chip) chip.textContent = s ? "🎤 pure voice · AI" : "—";
+    if (chip) {
+      chip.textContent = engineKind === "error" ? "⚠️ AI unavailable"
+        : (engineKind === "ai" ? (s ? "🎤 pure voice · AI" : "—") : "⏳ AI loading…");
+    }
     var fav = $("np-fav");
     if (fav) fav.classList.toggle("is-fav", !!(s && s.favorite));
     var play = $("btn-play");
@@ -1978,7 +2035,7 @@
   var THEME_DEFAULTS = {
     theme: "midnight", bgMode: "gradient",
     c1: "#2fe6c8", c2: "#3aa6ff",
-    wpOp: 45, wallpaper: ""
+    wpOp: 60, wallpaper: ""
   };
   var appTheme = loadAppTheme();
 
@@ -2009,14 +2066,42 @@
     } catch (e) { /* ignore */ }
   }
 
+  function hexToRgb(hex, fallback) {
+    var h = String(hex || "").replace("#", "");
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    if (isNaN(n)) return fallback;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgba(hex, alpha, fallback) {
+    var c = hexToRgb(hex, fallback || [47, 230, 200]);
+    return "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + alpha + ")";
+  }
+
   function applyAppTheme() {
     var root = document.documentElement;
     root.style.setProperty("--accent", appTheme.c1);
     root.style.setProperty("--grad-2", appTheme.c2);
     var preset = THEMES[appTheme.theme];
+    var isLight = !!(preset && preset.light);
     root.style.setProperty("--accent-2", preset ? preset.detail : appTheme.c2);
+    /* Theme-tinted background washes: the app shell, the Now Playing screen,
+       the home hero and the top bar all paint from these, so picking a theme
+       visibly recolors the whole background — not just the buttons. */
+    root.style.setProperty("--glow-1", rgba(appTheme.c1, isLight ? 0.14 : 0.17, [47, 230, 200]));
+    root.style.setProperty("--glow-2", rgba(appTheme.c2, isLight ? 0.12 : 0.15, [58, 166, 255]));
+    root.style.setProperty("--glow-line", rgba(appTheme.c1, 0.38, [47, 230, 200]));
+    /* In wallpaper mode the cards go translucent so the picture shows through
+       (solid again in every other mode). */
+    var wpActive = appTheme.bgMode === "wallpaper" && !!appTheme.wallpaper;
+    root.style.setProperty("--surface", wpActive
+      ? (isLight ? "rgba(255,255,255,0.86)" : "rgba(15,23,34,0.84)")
+      : (isLight ? "#ffffff" : "#0f1722"));
+    root.style.setProperty("--bg-2", wpActive
+      ? (isLight ? "rgba(255,255,255,0.92)" : "rgba(11,17,27,0.90)")
+      : (isLight ? "#ffffff" : "#0b111b"));
     document.body.setAttribute("data-bgmode", appTheme.bgMode);
-    if (preset && preset.light) document.body.setAttribute("data-theme", "light");
+    if (isLight) document.body.setAttribute("data-theme", "light");
     else document.body.removeAttribute("data-theme");
     var wp = $("app-wallpaper");
     if (wp) {
@@ -2054,16 +2139,21 @@
         appTheme.c1 = THEMES[name].c1;
         appTheme.c2 = THEMES[name].c2;
         applyAppTheme(); saveAppTheme();
+        toast("Theme applied: " + name.charAt(0).toUpperCase() + name.slice(1) + " — the whole background follows it.", "success");
       });
     });
     on($("theme-bgmode"), "change", function () {
-      appTheme.bgMode = $("theme-bgmode").value || "gradient";
+      var sel = $("theme-bgmode");
+      appTheme.bgMode = (sel && sel.value) || "gradient";
       if (appTheme.bgMode === "wallpaper" && !appTheme.wallpaper) {
         toast("Upload a wallpaper first — tap Upload below.");
         var fi = $("theme-file");
         if (fi) fi.click();
       }
       applyAppTheme(); saveAppTheme();
+      var label = "Gradient glow";
+      try { label = sel.options[sel.selectedIndex].text || label; } catch (e) { /* ignore */ }
+      toast("Background: " + label + ".", "success");
     });
     on($("theme-c1"), "input", function () {
       appTheme.c1 = $("theme-c1").value;
@@ -2076,7 +2166,7 @@
       applyAppTheme(); saveAppTheme();
     });
     on($("theme-opacity"), "input", function () {
-      appTheme.wpOp = Math.max(10, Math.min(100, Number($("theme-opacity").value) || 45));
+      appTheme.wpOp = Math.max(10, Math.min(100, Number($("theme-opacity").value) || 60));
       applyAppTheme(); saveAppTheme();
     });
     on($("btn-theme-upload"), "click", function () {
@@ -2361,6 +2451,17 @@
   on($("set-ai-boost"), "input", function () { setAIBoost($("set-ai-boost").value); });
   on($("set-ai-denoise"), "click", function () { setAIDenoise(!aiDenoise); });
   on($("btn-ai-relearn"), "click", function () {
+    if (engineKind === "error") {
+      /* The button doubles as the engine retry when the engine failed. */
+      if (aiNode) { try { aiNode.disconnect(); } catch (e) { /* ignore */ } aiNode = null; }
+      engineKind = "none";
+      engineInfo = null; engineStats = null;
+      toast("Retrying the AI voice engine…");
+      if (ensureCtx()) startEngine();
+      else toast("Audio is not supported on this device.", "error");
+      return;
+    }
+    if (engineKind !== "ai") { toast("The AI engine is still loading — try again in a moment."); return; }
     var s = currentSong();
     if (!s) { toast("Play a song first, then let the AI learn it again."); return; }
     s._profile = null;

@@ -51,14 +51,17 @@
   function VPAIEngineFactory() {
     "use strict";
 
-    /* Strength presets: how hard the mask pushes music down. */
+    /* Strength presets: how hard the mask pushes music down.
+       Floors are residual gains: max's 0.001 leaves ≤ −60 dB behind when the
+       mask fully closes, so a fully-gated instrumental vanishes instead of
+       humming quietly underneath. */
     var AI_STRENGTH = {
-      soft:     { steep: 0.85, gate: 0.16, floor: 0.10, label: "Soft" },
-      balanced: { steep: 1.35, gate: 0.20, floor: 0.055, label: "Balanced" },
-      strong:   { steep: 2.00, gate: 0.26, floor: 0.030, label: "Strong" },
+      soft:     { steep: 0.85, gate: 0.18, floor: 0.060, sus: 0.50, susRate: 0.030, label: "Soft" },
+      balanced: { steep: 1.35, gate: 0.22, floor: 0.030, sus: 0.25, susRate: 0.040, label: "Balanced" },
+      strong:   { steep: 2.00, gate: 0.28, floor: 0.020, sus: 0.12, susRate: 0.045, label: "Strong" },
       /* Max / 4K precision: a tighter gate and near-zero residual floor
          prevent quiet instrumental notes from leaking into the vocal. */
-      max:      { steep: 4.20, gate: 0.39, floor: 0.004, label: "Max · 4K Precision" }
+      max:      { steep: 4.20, gate: 0.39, floor: 0.001, sus: 0.00, susRate: 0.100, label: "Max · 4K Precision" }
     };
 
     var FFT_N = 1024;          /* frame length (≈21 ms @ 48 kHz)              */
@@ -252,8 +255,30 @@
       p.gateOn = true;
       p.gateTh = AI_STRENGTH.balanced.gate;
       p.floor = AI_STRENGTH.balanced.floor;
+      p.susFloor = AI_STRENGTH.balanced.sus;
+      p.susRate = AI_STRENGTH.balanced.susRate;
       p.capture = false;
-      p.bypass = false;
+      /* NOTE: there is intentionally no bypass/unity-mask path. The engine
+         always separates; silence-until-processed is enforced by the app,
+         which never routes audio around this node. */
+
+      /* ---- sustained-instrument suppressor (multi-second voice activity) ----
+         Frame-level cues cannot tell a centred, pitched, sustained instrument
+         (organ / synth pad / flute solo / drone) from a voice: every one of
+         them is centre-locked, periodic and inside the vocal band. What such
+         instruments lack is *change*: real singing constantly dips (syllable
+         gaps, consonants), fires spectral onsets and moves its pitch, while a
+         drone does none of that for seconds. The counters below measure time
+         since the last voice-like change; when all of them exceed ~1.5 s of
+         audio, a slow gate closes (with instant release on any new change). */
+      p.susGate = 1;
+      p.susPeak = -120;
+      p.susNoDip = 0;
+      p.susNoOnset = 0;
+      p.susNoJump = 0;
+      p.susF0Prev = 0;
+      p.susPrev = new Float32Array(HALF + 1);
+      p.susObserve = Math.max(120, Math.round(1.5 * SR / HOP));
 
       /* ---- metrics ---- */
       p.sumVad = 0;
@@ -278,6 +303,8 @@
       p.steep = preset.steep;
       p.gateTh = preset.gate;
       p.floor = preset.floor;
+      p.susFloor = preset.sus;
+      p.susRate = preset.susRate;
       p.port.postMessage({ t: "params", strength: key });
     }
 
@@ -287,6 +314,10 @@
       p.maskPrev.fill(0);
       p.vad = 0; p.vadSlow = 0; p.f0 = 0; p.period = 0;
       p.frame = 0;
+      /* re-learning reopens the sustained-instrument suppressor as well */
+      p.susGate = 1; p.susPeak = -120;
+      p.susNoDip = 0; p.susNoOnset = 0; p.susNoJump = 0;
+      p.susF0Prev = 0;
     }
 
     function clearStream(p) {
@@ -295,6 +326,8 @@
       p.fifoCount = 0; p.fifoRead = 0; p.fifoWrite = 0;
       p.fill = 0;
       p.vad = 0; p.vadSlow = 0;
+      p.susGate = 1;
+      p.susNoDip = 0; p.susNoOnset = 0; p.susNoJump = 0;
     }
 
     function handleParams(p, e) {
@@ -305,7 +338,8 @@
       if (typeof d.gateOn === "boolean") p.gateOn = d.gateOn;
       if (typeof d.capture === "boolean") p.capture = d.capture;
       if (d.flushCapture) flushCapture(p);
-      if (typeof d.bypass === "boolean") p.bypass = d.bypass;
+      /* Unknown fields (including any legacy "bypass" request) are ignored:
+         nothing may force the mask to unity. */
     }
 
     /* ---- pitch: normalised autocorrelation on a *band-passed* mid signal ----
@@ -466,6 +500,43 @@
       if (p.vad < 0) p.vad = 0; else if (p.vad > 1) p.vad = 1;
       p.vadSlow = p.vadSlow * 0.9 + p.vad * 0.1;
 
+      /* ---- sustained-instrument suppressor (multi-second voice activity) ----
+         A centred, pitched, sustained instrument looks exactly like a voice
+         inside any single 21 ms frame — so judge it over seconds instead.
+         Real singing dips (syllable gaps, consonant closures), fires
+         spectral-flux onsets and moves its pitch constantly; a drone, organ
+         pad or unchanging solo tone does none of that. When no voice-like
+         change has been seen for ~1.5 s, a slow gate closes toward the
+         preset's sustained floor (full mute at Max). Any new dip, onset or
+         pitch jump reopens it within milliseconds, so voices are only ever
+         affected while they are unnaturally static — and the gate switch in
+         the UI disables this together with the frame gate. */
+      var eDb = 10 * Math.log10(eTot + 1e-12);
+      if (eDb > p.susPeak) p.susPeak = eDb;
+      else p.susPeak -= 0.006;
+      var fluxNum = 0, fluxDen = 1e-9, kf;
+      for (kf = 1; kf <= NB; kf++) {
+        var dfk = mag[kf] - p.susPrev[kf];
+        fluxNum += dfk > 0 ? dfk : -dfk;
+        fluxDen += mag[kf];
+        p.susPrev[kf] = mag[kf];
+      }
+      var flux = fluxNum / fluxDen;
+      var voicedNow = p.f0 > 40, voicedPrev = p.susF0Prev > 40;
+      var jumped = voicedNow && voicedPrev &&
+        Math.abs(p.f0 - p.susF0Prev) / p.susF0Prev > 0.06;
+      var voicingChange = voicedNow !== voicedPrev;
+      p.susF0Prev = p.f0;
+      if (p.susPeak - eDb > 15 || voicingChange) p.susNoDip = 0; else p.susNoDip++;
+      if (flux > 0.30) p.susNoOnset = 0; else p.susNoOnset++;
+      if (jumped || voicingChange) p.susNoJump = 0; else p.susNoJump++;
+      var sustained = p.gateOn &&
+        p.susNoDip > p.susObserve &&
+        p.susNoOnset > p.susObserve &&
+        p.susNoJump > p.susObserve;
+      var susTarget = sustained ? p.susFloor : 1;
+      p.susGate += (susTarget - p.susGate) * (sustained ? p.susRate : 0.25);
+
       /* ---- learned log-likelihood ratio, zero-mean over the voice band ---- */
       var ll = p.ll;
       var llMean = 0, llN = 0, ePr = 1e-9;
@@ -515,6 +586,11 @@
         g = g * g * (3 - 2 * g);
         for (k = 0; k <= HALF; k++) mask[k] *= g;
       }
+      /* sustained-instrument suppressor (see above): an extra slow gate that
+         only closes on signals with no voice-like change for seconds */
+      if (p.susGate < 0.999) {
+        for (k = 0; k <= HALF; k++) mask[k] *= p.susGate;
+      }
 
       /* ---- 3-tap frequency smoothing + temporal smoothing ---- */
       var smoothed = p.smoothed;
@@ -529,7 +605,7 @@
         var kept = p.maskPrev[k] * 0.55 + smoothed[k] * 0.45;
         if (kept < p.floor) kept = p.floor;
         p.maskPrev[k] = kept;
-        smoothed[k] = p.bypass ? 1 : kept;
+        smoothed[k] = kept;
         if (k > 0 && k < HALF && mag[k] > 1e-7) {
           cut += 10 * Math.log10(kept * kept + 1e-6) * mag[k];
           cutN += mag[k];

@@ -5,7 +5,7 @@
    Runs the real AudioWorklet DSP (app/vp-ai-engine.js) inside Node by shimming
    the AudioWorkletGlobalScope, then measures what the engine actually does:
 
-     1. bypass reconstruction  — mask = 1 must be a bit-near-perfect passthrough
+     1. no unity-mask backdoor — a stale bypass:true must NOT yield passthrough
      2. music-only sections    — must collapse to (near) silence
      3. instrument suppression — bass / hats / wide pad must be cut hard
      4. voice retention        — the centred voice must survive
@@ -176,22 +176,21 @@ check("strength presets exposed", Object.keys(api.strengths).join(",") === "soft
   check("worklet announces itself as ready", messages.some(m => m.t === "ready"));
 }
 
-/* ---------------- 1. bypass reconstruction ---------------- */
+/* ---------------- 1. no unity-mask backdoor ---------------- */
 {
-  const n = SR * 3;
-  const a = new Float32Array(n), b = new Float32Array(n);
-  let seed = 12345;
-  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed / 0x3fffffff) - 1; };
-  for (let i = 0; i < n; i++) { a[i] = rnd() * 0.3; b[i] = rnd() * 0.3; }
-  const r = run(Processor, { L: a, R: b, sr: SR, n }, { bypass: true });
+  // The old bypass flag (mask forced to unity) was removed so that unfiltered
+  // music can never leak through this node. A stale or compromised client
+  // that still sends bypass:true must NOT get transparent audio back:
+  // music-only input must come out attenuated just the same.
+  const probe = makeSignals(SR, 6);
+  const r = run(Processor, { L: probe.mixL, R: probe.mixR, sr: SR, n: probe.n },
+    { strength: "strong", bypass: true });
   const d = 1023;
-  let err = 0, ref = 0;
-  for (let i = d + 4096; i < n - 2048; i++) {
-    err += Math.pow(r.outL[i] - a[i - d], 2) + Math.pow(r.outR[i] - b[i - d], 2);
-    ref += a[i - d] * a[i - d] + b[i - d] * b[i - d];
-  }
-  const rel = Math.sqrt(err / ref);
-  check("bypass = transparent reconstruction", rel < 5e-3, "relative error " + rel.toExponential(2));
+  const seg = [d + SR * 1.0, d + SR * 3.5];
+  const inE = energy(probe.mixL, seg[0] - d, seg[1] - d) + energy(probe.mixR, seg[0] - d, seg[1] - d);
+  const outE = energy(r.outL, seg[0], seg[1]) + energy(r.outR, seg[0], seg[1]);
+  const att = dB(outE / inE);
+  check("no unity-mask backdoor (bypass:true still separates)", att < -20, "attenuation " + round(att, 1) + " dB");
 }
 console.log("");
 

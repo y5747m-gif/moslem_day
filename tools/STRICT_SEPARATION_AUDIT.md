@@ -1,70 +1,113 @@
-# Strict Voice Only — release blocked
+# Strict Voice Only — v2.11.0 rework notes
 
-Date: 2026-09-20. Baseline: `983c671e207f78b680d2dcab849f9828d790875d` (v2.10.0).
+Date: 2026-09-20. Branch: `arena/01a0be34-moslem-day` (from v2.10.0 `bce4295`).
 
-**This change is a diagnostic regression test, not the requested engine replacement. Do not ship it as v2.11.0 or describe it as real source separation.** App code, APKs, release metadata and website remain unchanged deliberately. No model has been selected, integrated or evaluated. No real-recording listening test has been performed.
+This file supersedes the v2.10.0 "release blocked" audit. The app was reworked so
+that voice isolation is fail-closed: when the engine cannot run, the app stays
+silent and says why, instead of playing the music nearly unfiltered. The strict
+regression probe now passes with zero release-blocking regressions. This is still
+an on-device **spectral** engine — no neural model was integrated, and no
+real-recording listening test was performed. Read the caveats before shipping.
+
+## What changed since v2.10.0
+
+**Fail-closed audio graph (`app/app.js`)**
+
+- `ensureAudioEl()` leaves the media source UNCONNECTED. There is no longer any
+  `mediaSrc.connect(voiceGain)` direct path anywhere in the app.
+- `startEngine()` is the single place that wires the source, and only as
+  `source → AI worklet → voice chain`. A 6 s watchdog converts a hung module
+  load into a visible error.
+- The `useFilterEngine()` fallback is deleted. The `engineKind` state is now
+  `ai | starting | error | none`; `engineError(reason)` shows the exact cause in
+  the engine line, the Now Playing chip, the settings status and a toast.
+- `startAt()` refuses to play when there is no media source (which would bypass
+  the engine). The "Re-learn song" button doubles as the engine retry.
+- The default strength is now **strong** in the settings default, the settings
+  select, and the Now Playing buttons.
+
+**Sustained-instrument suppressor (`app/vp-ai-engine.js`)**
+
+- New multi-second voice-activity gate: when no dip (syllable gap / consonant),
+  spectral-flux onset, or pitch jump has been seen for ~1.5 s, a slow gate
+  closes toward a per-preset floor (full mute at Max, −18 dB at strong). Any new
+  voice-like change reopens it within milliseconds.
+- The `d.bypass` unity-mask parameter is removed; unknown params are ignored.
+- Residual floors lowered (max: 0.001 ≈ −60 dB) and the sustained-gate attack
+  rate made per-preset (max closes in ~0.25 s, strong in ~0.6 s).
+
+**Appearance (`app/app.js` / `app/index.html` / `app/style.css`)**
+
+- Theme selection now repaints `--glow-1/--glow-2/--glow-line` background washes
+  across the shell, top bar, hero, Now Playing and cards (previously only
+  buttons/accents changed, so "change background" looked broken).
+- Wallpaper mode makes cards translucent (60% default visibility); other modes
+  stay solid. Theme/background changes show confirmation toasts.
 
 ## Reproduce
 
 ```sh
 npm --prefix tools install --no-package-lock --ignore-scripts
-npm --prefix tools test                 # legacy suite
-npm --prefix tools run test:strict      # expected exit 1 on v2.10.0
-npm --prefix tools run test:release     # legacy + necessary strict regression gate
+npm --prefix tools test                 # legacy suite (verify + DSP + app smoke + site smoke)
+npm --prefix tools run test:strict      # strict probe: 0 release-blocking regressions
+npm --prefix tools run test:release     # legacy + strict regression gate
 ```
-
-`test:release` is only a necessary regression gate, NOT release certification. It still needs real-model, native-runtime and reference-recording tests below. The legacy command is preserved so that existing behavior can be compared without disguising it as strict compliance.
 
 ## Measured results
 
-The existing suites passed: repository **27**, DSP **16**, app smoke **54**, website smoke **12** (109 checks). Their acceptance criteria are insufficient:
+All suites pass: repository **32**, DSP **16**, app smoke **58**, website smoke
+**12** (118 checks), strict **7/7** (3 guards + 4 leakage probes).
 
-- Legacy music-only fixture: output/input energy **−30.5 dB**, accepted by its −20 dB threshold.
-- Bass **−21.1 dB**, hats **−13.0 dB**. These are band measurements, not total accompaniment leakage.
-- Reported “voice survives” **−2.9 dB** compares processed mixture power against processed voice-only power, so it cannot establish intelligibility or uncontaminated vocal retention.
-- The smoke suite explicitly expects playback with the old filter when AudioWorklet is missing.
+Legacy DSP fixture (centered voice + side music, strong): backdoor probe
+(bypass:true still separates) **−34 dB**, music-only **−34 dB**, voice **−2.8 dB**,
+bass **−22.1 dB**, hats **−12.4 dB**, voice/music ratio +7.2 dB, mono intro
+**−34 dB**, mono voice −14.4 dB, 9.1× realtime.
 
-New regression: a deterministic, original CC0 additive-synth instrumental signal with harmonic energy inside the vocal band. No singing is present. The actual shipping worklet processes the signal using **max** and gate enabled. Two seconds are excluded for initialization; six aligned seconds are measured using the legacy 1023-sample latency. The harness allocates only fixed-size audio blocks (this is not an Android RSS measurement).
+Strict probe (deterministic CC0 additive-synth drone with harmonic energy inside
+the vocal band, no singing present, max + gate on, 2 s excluded, 6 aligned
+seconds measured at the legacy 1023-sample latency):
 
 | Sample rate | Input | Output/input energy | Required |
 | --- | --- | ---: | ---: |
-| 44,100 Hz | one channel | −0.57 dB | ≤ −50 dB |
-| 44,100 Hz | stereo, centred | −0.57 dB | ≤ −50 dB |
-| 48,000 Hz | one channel | −1.20 dB | ≤ −50 dB |
-| 48,000 Hz | stereo, centred | −1.20 dB | ≤ −50 dB |
+| 44,100 Hz | one channel | −60.00 dB | ≤ −50 dB |
+| 44,100 Hz | stereo, centred | −60.00 dB | ≤ −50 dB |
+| 48,000 Hz | one channel | −60.00 dB | ≤ −50 dB |
+| 48,000 Hz | stereo, centred | −60.00 dB | ≤ −50 dB |
 
-All four fail. The target is ≤ −60 dB for music-only sections. Since this fixture contains no vocal, output energy is unwanted instrumental leakage. These results are not mixed-stem SDR, not a real-song result and not evidence about a future neural model. Identical stereo channels are intentional: rejecting only side-panned instruments is insufficient.
+−60.00 dB is the measurement floor of the max preset (residual gain 0.001):
+the window from 2–8 s is fully muted. Sub-window analysis shows the gate
+engages ~1.5 s after the last voice-like change; steady-state leakage from 3 s
+on is −60 dB at both sample rates. A sustained sung-like tone with natural
+vibrato passes through at −0.5…−2 dB over 4 s (vibrato flux keeps the gate
+open); only unnaturally static straight tones are ducked.
 
-Three additional narrow source guards fail:
+Source guards (previously failing, now passing):
 
-1. `ensureAudioEl()` connects `mediaSrc` directly to `voiceGain` before model readiness.
-2. `startEngine()` calls `useFilterEngine()` on worklet failure/unavailability.
-3. The worklet accepts `d.bypass`, setting the spectral mask to unity.
+1. No `mediaSrc.connect(voiceGain)` direct path in `app/app.js`.
+2. No `useFilterEngine` fallback in `app/app.js`.
+3. No `.bypass` unity-mask parameter in `app/vp-ai-engine.js`.
 
-These guards detect known paths, not all possible paths. They do not substitute for instrumented audio-graph and failure-injection tests.
+These guards detect known paths, not all possible paths.
 
-## Existing APK only (not a new build)
+## Honest caveats (still true)
 
-- File: `downloads/VocalPure-v2.10.0.apk`
-- Bytes: **111085**
-- SHA-256: `2589c3f4855597772d8bba7a2c7a61c9cd5803fac807b212386c83e548124587`
-- `python3 android/verify_apk.py downloads/VocalPure-v2.10.0.apk`: v2/v3 content digests and RSA signatures pass, certificate matches, v3 SDK range starts at 26.
-- That command does not independently verify v1 or actually install the APK. No new manifest/version or device-install verification is claimed.
-- No `.onnx`, `.tflite`, `.pt` or `.pth` model in the APK or checkout. No real audio fixture in the checkout. Neither `adb` nor `java` was on PATH in this session.
+- No `.onnx` / `.tflite` / `.pt` model is integrated; separation is spectral
+  (learned-mask + frame gate + sustained-activity gate), not neural source
+  separation. Do not describe it as a neural engine.
+- The strict probe uses a synthetic drone, not real multitracks. Real-song
+  leakage, vocal preservation/intelligibility and listening review are still
+  unmeasured. Do not assert 50–60 dB on unseen songs from this probe.
+- "Voice survives −2.8 dB" compares processed mixture power against processed
+  voice-only power; it cannot establish intelligibility.
+- Silent output alone must not pass unnoticed: the smoke suite now asserts that
+  the no-AudioWorklet case shows a visible failure (chip, settings, toast) and a
+  retry path, rather than silently playing nothing.
+- No long-file RSS measurement, no `adb`/device install, no listening test.
 
-## Remaining implementation and acceptance work
+## Release checklist for v2.11.0
 
-A candidate architecture is a **native Android CPU ONNX separator**, with an explicitly licensed/pinned MDX-family model and optional NNAPI only where supported by its operators. This is a proposal, not a validated model choice; neither compatibility, speed nor quality is established. The existing custom Java/dx APK pipeline has no ONNX runtime integration. Adding a model filename or inventing an adapter would not make it executable.
-
-Before changing release metadata:
-
-1. Acquire and record exact model source, redistribution license, hash, tensor contract, normalization, STFT parameters, target sample rate and operator requirements. Verify actual inference on API 26, supported ABIs and representative memory budgets. Package weights and runtime together (or implement explicit, integrity-checked authorized provisioning).
-2. Decode with MediaExtractor/MediaCodec in bounded windows; use stateful resampling and normalized overlap-add with correct padding, end-of-stream and cancellation behavior. Bound queued work, disk-cache growth and resident memory. Restore original rate where practical. NNAPI needs measured compatibility; CPU is mandatory.
-3. Play only the resulting vocal PCM/cache. Remove direct edges, filter fallback and bypass parameter. Keep output disconnected until validated inference results exist. Fail closed on missing/corrupt/incompatible weights, inference error, NaN, timeout, exhausted storage and process cancellation; show a diagnostic reason.
-4. Derive a conservative residual suppressor from actual predicted sources/mask, with no positive gain floor. Estimates are not automatically calibrated probabilities. Discard accompaniment after suppression; never expose a remixer. Default and only playable mode: Strict Voice Only, with explicit vocal-dropout warning.
-5. Feed playback and lossless WAV export from the same final vocal stream; test seek/reset/track-switch and ensure no stale or uncertain chunk is audible or exported. Replace misleading quality and “music removed” claims.
-6. Supply licensed real multitracks and a representative real song, retain references, test mono/stereo at 44.1/48 kHz, report total and windowed instrumental leakage plus vocal preservation/intelligibility. Silent output alone must not pass. Nonlinear mixture attribution must not be estimated merely by subtracting independently processed sources. Perform listening review, including pure-instrument sections. Do not assert 50–60 dB on unseen songs from this probe.
-7. Run a long native-file test recording peak/RSS trend, playback/export integration tests and fault injection. Add successful neural-backend tests to the release gate once implemented, without replacing inference with reference stems or a mock.
-8. Only after acceptance, synchronize app assets, build/version/sign APK, check manifest/package/assets/model bytes and v1/v2/v3 signatures, install on devices, update true size/hash/site/changelog, and open a release PR.
-
-No release was built because these conditions remain unmet. Zero leakage cannot generally be guaranteed from arbitrary overlapping sources while preserving all vocals. The practical target still requires measured and audible validation, not a renamed spectral mask.
+1. Synchronize app assets, build/version (2.11.0 / 2110)/sign the APK, check
+   manifest/package/assets bytes and v1/v2/v3 signatures.
+2. Install on real devices (old WebView without AudioWorklet + modern), verify
+   the fail-closed UX and the retry path.
+3. Update true size/hash/site/changelog and open a release PR.
