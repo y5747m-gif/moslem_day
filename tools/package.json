@@ -1,0 +1,19 @@
+{
+  "name": "vocalpure-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Verification harnesses for the VocalPure app (not shipped with the app or the website).",
+  "scripts": {
+    "test": "node verify_app.js && node test_ai_engine.js && node smoke_app.js && node smoke_site.js",
+    "verify": "node verify_app.js",
+    "engine": "node test_ai_engine.js",
+    "smoke": "node smoke_app.js",
+    "site": "node smoke_site.js"
+  },
+  "devDependencies": {
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
+    "fake-indexeddb": "^6.2.5",
+    "jsdom": "^30.1.0"
+  }
+}

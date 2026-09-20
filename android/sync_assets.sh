@@ -7,5 +7,5 @@ cd "$(dirname "$0")/.."   # repo root
 SITE=android/assets/www
 rm -rf "$SITE"
 mkdir -p "$SITE"
-cp app/index.html app/app.js app/style.css app/app-info.json "$SITE/"
+cp app/index.html app/app.js app/vp-ai-engine.js app/style.css app/app-info.json "$SITE/"
 echo "synced: $(find "$SITE" -type f | wc -l) app files"
