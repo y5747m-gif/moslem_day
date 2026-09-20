@@ -2,8 +2,9 @@
    VocalPure — AI voice engine (v6)   ·   app/vp-ai-engine.js
    ----------------------------------------------------------------------------
    The player plays ONE thing only: the isolated voice. There is no stem/mode
-   selector any more — this engine is always on and always removes the music,
-   in real time, on the device, offline, for files of any size.
+   selector any more. This offline spectral heuristic reduces accompaniment;
+   it is not a trained source-separation model and cannot guarantee voice-only
+   output, especially for mono mixes or instruments overlapping the singer.
 
    HOW THE SEPARATION WORKS (everything runs inside an AudioWorklet):
 
@@ -12,16 +13,9 @@
        processing is what makes arbitrarily large songs safe: the engine never
        decodes a file into memory, it only ever sees a 1024-sample window.
 
-     · Pure isolation (Max / “4K Precision”) — the default. On top of the
-       soft mask, three hard rules make the removal complete instead of
-       statistical: (1) every bin outside the hard voice band 115 Hz–9 kHz
-       is set to exactly zero (kick, bass and air/cymbals can never leak),
-       (2) any bin whose voice log-odds falls below a strict threshold is
-       zeroed rather than attenuated, and (3) the residual floor is 0 — a
-       closed mask outputs digital silence, not a −60 dB ghost. Combined
-       with the frame gate (non-voice frames go fully silent) and the
-       sustained-instrument suppressor, no music energy passes through:
-       what remains is the voice, nothing else.
+     · Max combines a gated spectral mask with centre extraction. This removes
+       side-channel accompaniment but can lose off-centre vocals. A closed mask
+       is silent; that does NOT mean every open bin contains only a voice.
 
      · Per-bin evidence that a bin belongs to a voice, summed in log-odds:
          1. learned spectral profiles — two adaptive per-track profiles (voice
@@ -69,12 +63,11 @@
       soft:     { steep: 0.85, gate: 0.18, floor: 0.060, sus: 0.50, susRate: 0.030, label: "Soft" },
       balanced: { steep: 1.35, gate: 0.22, floor: 0.030, sus: 0.25, susRate: 0.040, label: "Balanced" },
       strong:   { steep: 2.00, gate: 0.28, floor: 0.020, sus: 0.12, susRate: 0.045, label: "Strong" },
-      /* Max / 4K precision — the default and the only setting that promises
-         100% music removal: the pure path (see below) turns the soft mask
-         into a hard one. zero floor = closed masks are exact silence. */
+      /* Max: hard spectral gate + centre extraction. Zero floor only means
+         closed masks are silent, not that voice/music classification is perfect. */
       max:      { steep: 4.20, gate: 0.39, floor: 0.000, sus: 0.00, susRate: 0.100,
                   pure: true, pureTh: 0.35, pureLo: 115, pureHi: 9000,
-                  label: "Max · 100% Isolation" }
+                  label: "Max · Center voice" }
     };
 
     var FFT_N = 1024;          /* frame length (≈21 ms @ 48 kHz)              */
@@ -649,8 +642,19 @@
       /* ---- apply the mask, re-pack and inverse transform ---- */
       for (k = 0; k <= HALF; k++) {
         var gg = smoothed[k];
-        xrL[k] *= gg; xiL[k] *= gg;
-        xrR[k] *= gg; xiR[k] *= gg;
+        if (p.pure) {
+          // A common mask alone preserves side-channel instruments whenever
+          // they overlap a vocal bin. Max extracts the masked centre instead.
+          // Centred/mono instruments still require a trained separation model;
+          // off-centre vocals and stereo reverb may also be attenuated.
+          var midRe = 0.5 * (xrL[k] + xrR[k]) * gg;
+          var midIm = 0.5 * (xiL[k] + xiR[k]) * gg;
+          xrL[k] = xrR[k] = midRe;
+          xiL[k] = xiR[k] = midIm;
+        } else {
+          xrL[k] *= gg; xiL[k] *= gg;
+          xrR[k] *= gg; xiR[k] *= gg;
+        }
       }
       /* Z'[k] = L[k] + i·R[k]  →  Re Z' = Re L - Im R ,  Im Z' = Re R + Im L
          (the mask is real and identical for both parts, so scaling L and R

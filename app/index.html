@@ -197,12 +197,11 @@
             <span class="set-label">Audio output<small class="set-sub">Also switchable from the pinned notification</small></span>
             <select id="set-audio-output" aria-label="Audio output">
               <option value="auto" selected>Auto (system)</option>
-              <option value="speaker">Loudspeaker</option>
-              <option value="earpiece">Phone earpiece</option>
               <option value="bluetooth">Bluetooth</option>
               <option value="wired">Wired headset</option>
             </select>
           </div>
+          <p class="set-hint">Android selects the media output. Use the phone’s media-output panel to switch speakers; these preferences do not force a device.</p>
           <div class="set-row">
             <span class="set-label">Sleep timer</span>
             <select id="set-sleep" aria-label="Sleep timer">
@@ -229,7 +228,7 @@
               <option value="soft">Soft</option>
               <option value="balanced">Balanced</option>
               <option value="strong">Strong</option>
-              <option value="max" selected>Max · 100% Isolation</option>
+              <option value="max" selected>Max · Center voice</option>
             </select>
           </div>
           <div class="set-row">
@@ -463,7 +462,7 @@
               <button type="button" class="ai-btn" data-ai="balanced" aria-pressed="false">Balanced</button>
               <button type="button" class="ai-btn" data-ai="strong" aria-pressed="false">Strong</button>
               <button type="button" class="ai-btn" data-ai="max" aria-pressed="false">Max</button>
-              <button type="button" class="ai-btn is-active" data-ai="precision" aria-pressed="true">100% Isolation</button>
+              <button type="button" class="ai-btn is-active" data-ai="precision" aria-pressed="true">Center voice</button>
             </div>
             <div class="quality-note">🔊 <b>4K Audio quality</b> — preserves the original file's highest available sample rate without compressing it.</div>
             <p class="engine-line" id="engine-line">Starting the on-device AI engine…</p>
