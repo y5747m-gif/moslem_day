@@ -1871,6 +1871,328 @@
   };
 
   /* ============================================================
+     Appearance — background mode, themes, colors, wallpaper
+     Saved per device, applied instantly, survives restarts.
+     ============================================================ */
+  var THEME_KEY = "vp-app-theme-v1";
+  var THEMES = {
+    midnight: { c1: "#2fe6c8", c2: "#3aa6ff", detail: "#f2c14e", light: false },
+    ocean:    { c1: "#38bdf8", c2: "#6366f1", detail: "#f2c14e", light: false },
+    sunset:   { c1: "#fb7185", c2: "#fb923c", detail: "#fde68a", light: false },
+    royal:    { c1: "#c084fc", c2: "#6366f1", detail: "#f0abfc", light: false },
+    forest:   { c1: "#34d399", c2: "#22d3ee", detail: "#fbbf24", light: false },
+    light:    { c1: "#0ea5e9", c2: "#8b5cf6", detail: "#f59e0b", light: true }
+  };
+  var THEME_DEFAULTS = {
+    theme: "midnight", bgMode: "gradient",
+    c1: "#2fe6c8", c2: "#3aa6ff",
+    wpOp: 45, wallpaper: ""
+  };
+  var appTheme = loadAppTheme();
+
+  function loadAppTheme() {
+    var t = {}, k;
+    for (k in THEME_DEFAULTS) t[k] = THEME_DEFAULTS[k];
+    try {
+      var raw = localStorage.getItem(THEME_KEY);
+      var s = raw ? JSON.parse(raw) : null;
+      if (s) for (var k2 in t) {
+        if (s[k2] !== undefined && s[k2] !== null) t[k2] = s[k2];
+      }
+    } catch (e) { /* defaults */ }
+    if (!THEMES[t.theme] && t.theme !== "custom") t.theme = "midnight";
+    if (["gradient", "minimal", "wallpaper"].indexOf(t.bgMode) < 0) t.bgMode = "gradient";
+    if (!/^#[0-9a-fA-F]{6}$/.test(String(t.c1 || ""))) t.c1 = THEME_DEFAULTS.c1;
+    if (!/^#[0-9a-fA-F]{6}$/.test(String(t.c2 || ""))) t.c2 = THEME_DEFAULTS.c2;
+    t.wpOp = Math.max(10, Math.min(100, Math.round(Number(t.wpOp) || THEME_DEFAULTS.wpOp)));
+    return t;
+  }
+
+  function saveAppTheme() {
+    try {
+      var copy = {};
+      for (var k in appTheme) copy[k] = appTheme[k];
+      if (typeof copy.wallpaper === "string" && copy.wallpaper.length > 900000) copy.wallpaper = "";
+      localStorage.setItem(THEME_KEY, JSON.stringify(copy));
+    } catch (e) { /* ignore */ }
+  }
+
+  function applyAppTheme() {
+    var root = document.documentElement;
+    root.style.setProperty("--accent", appTheme.c1);
+    root.style.setProperty("--grad-2", appTheme.c2);
+    var preset = THEMES[appTheme.theme];
+    root.style.setProperty("--accent-2", preset ? preset.detail : appTheme.c2);
+    document.body.setAttribute("data-bgmode", appTheme.bgMode);
+    if (preset && preset.light) document.body.setAttribute("data-theme", "light");
+    else document.body.removeAttribute("data-theme");
+    var wp = $("app-wallpaper");
+    if (wp) {
+      if (appTheme.wallpaper) {
+        wp.style.backgroundImage = 'url("' + appTheme.wallpaper + '")';
+        wp.style.opacity = String(appTheme.wpOp / 100);
+      } else {
+        wp.style.backgroundImage = "none";
+      }
+    }
+    syncThemeUI();
+  }
+
+  function syncThemeUI() {
+    var btns = document.querySelectorAll("#theme-grid .theme");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle("is-active", btns[i].getAttribute("data-theme") === appTheme.theme);
+    }
+    var bm = $("theme-bgmode");
+    if (bm) bm.value = appTheme.bgMode;
+    var c1 = $("theme-c1"), c2 = $("theme-c2");
+    if (c1) c1.value = appTheme.c1;
+    if (c2) c2.value = appTheme.c2;
+    var op = $("theme-opacity"), opv = $("theme-opacity-val");
+    if (op) op.value = String(appTheme.wpOp);
+    if (opv) opv.textContent = appTheme.wpOp + "%";
+  }
+
+  function bindThemeUI() {
+    document.querySelectorAll("#theme-grid .theme").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var name = btn.getAttribute("data-theme");
+        if (!THEMES[name]) return;
+        appTheme.theme = name;
+        appTheme.c1 = THEMES[name].c1;
+        appTheme.c2 = THEMES[name].c2;
+        applyAppTheme(); saveAppTheme();
+      });
+    });
+    on($("theme-bgmode"), "change", function () {
+      appTheme.bgMode = $("theme-bgmode").value || "gradient";
+      if (appTheme.bgMode === "wallpaper" && !appTheme.wallpaper) {
+        toast("Upload a wallpaper first — tap Upload below.");
+        var fi = $("theme-file");
+        if (fi) fi.click();
+      }
+      applyAppTheme(); saveAppTheme();
+    });
+    on($("theme-c1"), "input", function () {
+      appTheme.c1 = $("theme-c1").value;
+      appTheme.theme = "custom";
+      applyAppTheme(); saveAppTheme();
+    });
+    on($("theme-c2"), "input", function () {
+      appTheme.c2 = $("theme-c2").value;
+      appTheme.theme = "custom";
+      applyAppTheme(); saveAppTheme();
+    });
+    on($("theme-opacity"), "input", function () {
+      appTheme.wpOp = Math.max(10, Math.min(100, Number($("theme-opacity").value) || 45));
+      applyAppTheme(); saveAppTheme();
+    });
+    on($("btn-theme-upload"), "click", function () {
+      var fi = $("theme-file");
+      if (fi) fi.click();
+    });
+    on($("theme-file"), "change", function () {
+      var fi = $("theme-file");
+      var f = fi && fi.files && fi.files[0];
+      if (!f) return;
+      if (!/^image\//.test(f.type || "")) { toast("Please choose an image file.", "error"); fi.value = ""; return; }
+      if (f.size > 8 * 1024 * 1024) { toast("Image is larger than 8 MB — pick a smaller one.", "error"); fi.value = ""; return; }
+      var reader = new FileReader();
+      reader.onload = function () {
+        appTheme.wallpaper = String(reader.result || "");
+        appTheme.bgMode = "wallpaper";
+        applyAppTheme(); saveAppTheme();
+        toast("Wallpaper applied.", "success");
+      };
+      reader.onerror = function () { toast("Could not read that image.", "error"); };
+      reader.readAsDataURL(f);
+      fi.value = "";
+    });
+    on($("btn-theme-remove"), "click", function () {
+      appTheme.wallpaper = "";
+      if (appTheme.bgMode === "wallpaper") appTheme.bgMode = "gradient";
+      applyAppTheme(); saveAppTheme();
+      toast("Wallpaper removed.");
+    });
+    on($("btn-theme-reset"), "click", function () {
+      appTheme = {};
+      for (var k in THEME_DEFAULTS) appTheme[k] = THEME_DEFAULTS[k];
+      applyAppTheme(); saveAppTheme();
+      toast("Appearance reset.", "success");
+    });
+  }
+
+  /* ============================================================
+     App updates — every user gets every release
+     Compares the installed version against the published
+     app-info.json and surfaces new releases in a home banner +
+     a Settings row. Fully offline-safe: failures stay silent
+     unless the check was started manually.
+     ============================================================ */
+  var UPDATE_URLS = [
+    "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json"
+  ];
+  var UPDATE_RECHECK_MS = 30 * 60 * 1000;
+  var DISMISS_KEY = "vp-app-update-dismissed";
+  var nativeVersion = "";
+  var bundledVersion = "";
+  var remoteInfo = null;
+
+  function updNorm(v) {
+    return String(v === undefined || v === null ? "" : v).trim().replace(/^[vV]/, "");
+  }
+
+  function updCmp(a, b) {
+    var pa = updNorm(a).split(/[.\-+_]/), pb = updNorm(b).split(/[.\-+_]/);
+    var n = Math.max(pa.length, pb.length);
+    for (var i = 0; i < n; i++) {
+      var xa = pa[i] === undefined ? "" : pa[i];
+      var xb = pb[i] === undefined ? "" : pb[i];
+      var na = parseInt(xa, 10), nb = parseInt(xb, 10);
+      var aNum = !isNaN(na) && String(na) === xa;
+      var bNum = !isNaN(nb) && String(nb) === xb;
+      if (aNum && bNum) {
+        if (na !== nb) return na > nb ? 1 : -1;
+      } else if (xa !== xb) {
+        if (xa === "") return 1;
+        if (xb === "") return -1;
+        return xa > xb ? 1 : -1;
+      }
+    }
+    return 0;
+  }
+
+  function installedVersion() {
+    return updNorm(nativeVersion || bundledVersion);
+  }
+
+  function fetchWithTimeout(url, ms) {
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var timer = setTimeout(function () {
+        if (!done) { done = true; reject(new Error("timeout")); }
+      }, ms || 10000);
+      fetch(url, { cache: "no-store" })
+        .then(function (res) {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          if (!res.ok) reject(new Error("http " + res.status));
+          else resolve(res.json());
+        })
+        .catch(function (e) {
+          if (!done) { done = true; clearTimeout(timer); reject(e); }
+        });
+    });
+  }
+
+  function remoteVersionOf(info) {
+    return updNorm((info && (info.versionPlain || info.version)) || "");
+  }
+
+  function dismissedVersion() {
+    try { return updNorm(localStorage.getItem(DISMISS_KEY) || ""); }
+    catch (e) { return ""; }
+  }
+
+  function setUpdateStatus(txt) {
+    var el = $("update-status");
+    if (el) el.textContent = txt;
+  }
+
+  function showUpdateAvailable(info) {
+    remoteInfo = info;
+    var ver = info.version || (info.versionPlain ? "v" + info.versionPlain : "");
+    var first = (info.changelog && info.changelog.length) ? info.changelog[0] : "";
+    var banner = $("update-banner");
+    if (banner && remoteVersionOf(info) !== dismissedVersion()) {
+      var t = $("update-title"), s = $("update-sub");
+      if (t) t.textContent = ver + " available 🎉";
+      if (s) s.textContent = first || "Tap Download to get the latest VocalPure.";
+      banner.hidden = false;
+    }
+    var row = $("update-row");
+    if (row) {
+      row.hidden = false;
+      var rt = $("update-row-title"), rs = $("update-row-sub");
+      if (rt) rt.textContent = ver + " available";
+      if (rs) rs.textContent = first || "Tap Download to get it.";
+    }
+    setUpdateStatus("Update " + ver + " is ready to download.");
+  }
+
+  function checkAppUpdates(manual) {
+    if (!window.fetch) {
+      if (manual) toast("Update check is not supported here.", "error");
+      return;
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      if (manual) toast("You're offline — connect to check for updates.", "error");
+      else setUpdateStatus("Offline — will check when you're back online.");
+      return;
+    }
+    if (manual) {
+      toast("Checking for updates…");
+      setUpdateStatus("Checking…");
+    }
+    var urls = UPDATE_URLS.slice();
+    /* When the app is opened over http(s), the site copy is freshest. */
+    try {
+      if (window.location && /^https?:/.test(window.location.protocol)) urls.unshift("../app-info.json?t=" + Date.now());
+    } catch (e) { /* ignore */ }
+    (function tryNext(i) {
+      if (i >= urls.length) {
+        if (manual) {
+          toast("Could not reach the update server.", "error");
+          setUpdateStatus("Last check failed — will retry automatically.");
+        }
+        return;
+      }
+      fetchWithTimeout(urls[i], 10000).then(function (info) {
+        if (!info || !remoteVersionOf(info)) { tryNext(i + 1); return; }
+        var rv = remoteVersionOf(info);
+        var iv = installedVersion();
+        if (!iv || updCmp(rv, iv) > 0) {
+          showUpdateAvailable(info);
+          toast("Update " + (info.version || ("v" + rv)) + " available 🎉", manual ? "success" : undefined);
+        } else {
+          try { localStorage.removeItem(DISMISS_KEY); } catch (e) { /* ignore */ }
+          var b = $("update-banner"); if (b) b.hidden = true;
+          var r = $("update-row"); if (r) r.hidden = true;
+          setUpdateStatus("You're on the latest version (v" + iv + ").");
+          if (manual) toast("You're on the latest version.", "success");
+        }
+      }).catch(function () { tryNext(i + 1); });
+    })(0);
+  }
+
+  function openUpdatePage() {
+    var url = (remoteInfo && remoteInfo.downloadPage) ||
+      "https://github.com/y5747m-gif/moslem_day";
+    try {
+      if (window.VocalPureAndroid && window.VocalPureAndroid.openUpdatePage) {
+        window.VocalPureAndroid.openUpdatePage(url);
+        return;
+      }
+    } catch (e) { /* fall through to browser */ }
+    try { window.open(url, "_blank"); }
+    catch (e) { window.location.href = url; }
+  }
+
+  function bindUpdateUI() {
+    on($("btn-check-updates"), "click", function () { checkAppUpdates(true); });
+    on($("btn-update-go"), "click", openUpdatePage);
+    on($("btn-update-download"), "click", openUpdatePage);
+    on($("btn-update-later"), "click", function () {
+      var b = $("update-banner");
+      if (b) b.hidden = true;
+      try { localStorage.setItem(DISMISS_KEY, remoteVersionOf(remoteInfo)); } catch (e) { /* ignore */ }
+      toast("Update dismissed — it stays available in Settings.");
+    });
+    window.addEventListener("online", function () { checkAppUpdates(false); });
+  }
+
+  /* ============================================================
      Events
      ============================================================ */
   on($("btn-import"), "click", function () { $("file-input").click(); });
@@ -2183,6 +2505,10 @@
      Init
      ============================================================ */
   function init() {
+    /* appearance first so the saved theme paints before anything else */
+    applyAppTheme();
+    bindThemeUI();
+    bindUpdateUI();
     loadSettings();
     volume = settings.volume;
     playbackRate = settings.rate || 1;
@@ -2218,11 +2544,17 @@
     if (window.VocalPureAndroid && window.VocalPureAndroid.appInfo) {
       try {
         var bridgeInfo = JSON.parse(window.VocalPureAndroid.appInfo());
-        if (bridgeInfo.versionName) applyVersion("v" + bridgeInfo.versionName);
+        if (bridgeInfo.versionName) {
+          nativeVersion = String(bridgeInfo.versionName);
+          applyVersion("v" + bridgeInfo.versionName);
+        }
       } catch (e) { /* fall through */ }
     }
     function loadAppInfo() {
       function onInfo(info) {
+        if (info && (info.versionPlain || info.version)) {
+          bundledVersion = String(info.versionPlain || info.version);
+        }
         if (!versionSet && info && info.version) applyVersion("v" + info.version);
         var cl = $("set-changelog");
         if (cl && info && info.changelog && info.changelog.length) {
@@ -2297,6 +2629,10 @@
         }, 800);
       }
     }
+
+    /* live updates: first check shortly after launch, then periodically */
+    setTimeout(function () { checkAppUpdates(false); }, 4000);
+    setInterval(function () { checkAppUpdates(false); }, UPDATE_RECHECK_MS);
 
     (function idle() {
       if (!playing) drawIdleViz(performance.now());

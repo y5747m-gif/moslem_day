@@ -10,6 +10,8 @@
   "betaSha256": "274e07c1b90b7b3db921ecc8d7969b51369eca77ef0a46fe5fd69d4920553fe7",
   "stableFile": "downloads/VocalPure-v2.8.0.apk",
   "betaFile": "downloads/VocalPure-v2.8.0-beta.1.apk",
+  "downloadPage": "https://github.com/y5747m-gif/moslem_day",
+  "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
     "Full phone music permissions: complete runtime & manifest permissions (READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE) to access all music files on your phone",
     "Audio engine fix: restored audio routing in vocal isolation and auto-purify modes — all tracks now play loudly and clearly",

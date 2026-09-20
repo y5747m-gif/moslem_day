@@ -18,14 +18,17 @@
 
   var DEFAULTS = {
     preset: "nebula",
+    bgMode: "full",  // full | orbs | particles | minimal
     animated: true,
     links: true,
+    grid: true,
     particles: 110,
     speed: 100,      // percent (0-300)
     glow: 70,        // percent
     hue: 0,          // degrees
     c1: "#a855f7",
     c2: "#3b82f6",
+    c3: "#22d3ee",
     imgOp: 45,       // percent
     blur: 2,         // px
     customImage: ""  // data URL (only persisted when small enough)
@@ -51,6 +54,9 @@
     out.imgOp = clamp(Number(out.imgOp) || 0, 0, 100);
     out.blur = clamp(Number(out.blur) || 0, 0, 20);
     if (!PRESETS[out.preset]) out.preset = "nebula";
+    if (["full", "orbs", "particles", "minimal"].indexOf(out.bgMode) < 0) out.bgMode = "full";
+    out.grid = out.grid !== false;
+    if (!/^#[0-9a-fA-F]{6}$/.test(String(out.c3 || ""))) out.c3 = "#22d3ee";
     return out;
   }
 
@@ -121,7 +127,11 @@
 
   function accent(i) {
     // blend between accent colors by particle tone
-    return i < 0.45 ? settings.c1 : (i < 0.8 ? settings.c2 : "#22d3ee");
+    return i < 0.45 ? settings.c1 : (i < 0.8 ? settings.c2 : settings.c3);
+  }
+
+  function wantsParticles() {
+    return settings.bgMode === "full" || settings.bgMode === "particles";
   }
 
   function hexToRgb(hex) {
@@ -225,6 +235,9 @@
   function applySettings() {
     root.style.setProperty("--accent-1", settings.c1);
     root.style.setProperty("--accent-2", settings.c2);
+    root.style.setProperty("--accent-3", settings.c3);
+    document.body.setAttribute("data-bgmode", settings.bgMode);
+    document.body.setAttribute("data-grid", settings.grid ? "on" : "off");
     var hueVal = "hue-rotate(" + settings.hue + "deg)";
     if (orbsEl) orbsEl.style.filter = settings.hue ? hueVal : "";
     if (canvas) canvas.style.filter = settings.hue ? hueVal : "";
@@ -248,7 +261,12 @@
       }
     }
     syncParticles();
-    if (settings.animated) startLoop();
+    if (!wantsParticles()) {
+      // Canvas layer is hidden in this mode — stop the loop to save battery.
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      if (ctx) ctx.clearRect(0, 0, W, H);
+    }
+    else if (settings.animated) startLoop();
     else renderOnce();
   }
 
@@ -297,9 +315,11 @@
         settings.preset = name;
         settings.c1 = PRESETS[name].c1;
         settings.c2 = PRESETS[name].c2;
-        var c1 = $("cust-c1"), c2 = $("cust-c2");
+        settings.c3 = PRESETS[name].c3;
+        var c1 = $("cust-c1"), c2 = $("cust-c2"), c3 = $("cust-c3");
         if (c1) c1.value = settings.c1;
         if (c2) c2.value = settings.c2;
+        if (c3) c3.value = settings.c3;
         markPreset();
         applySettings();
         saveSettings();
@@ -307,10 +327,28 @@
     }
     markPreset();
 
+    // background mode
+    var bgmodeBtns = panel.querySelectorAll(".bgmode");
+    function markBgmode() {
+      for (var b = 0; b < bgmodeBtns.length; b++) {
+        bgmodeBtns[b].classList.toggle("is-active", bgmodeBtns[b].getAttribute("data-bgmode") === settings.bgMode);
+      }
+    }
+    for (var bi = 0; bi < bgmodeBtns.length; bi++) {
+      bgmodeBtns[bi].addEventListener("click", function () {
+        settings.bgMode = this.getAttribute("data-bgmode") || "full";
+        markBgmode();
+        applySettings();
+        saveSettings();
+      });
+    }
+    markBgmode();
+
     // switches
-    var swAnim = $("cust-animate"), swLinks = $("cust-links");
+    var swAnim = $("cust-animate"), swLinks = $("cust-links"), swGrid = $("cust-grid");
     setSwitch(swAnim, settings.animated);
     setSwitch(swLinks, settings.links);
+    setSwitch(swGrid, settings.grid);
     if (swAnim) swAnim.addEventListener("click", function () {
       settings.animated = !settings.animated;
       setSwitch(swAnim, settings.animated);
@@ -319,6 +357,11 @@
     if (swLinks) swLinks.addEventListener("click", function () {
       settings.links = !settings.links;
       setSwitch(swLinks, settings.links);
+      applySettings(); saveSettings();
+    });
+    if (swGrid) swGrid.addEventListener("click", function () {
+      settings.grid = !settings.grid;
+      setSwitch(swGrid, settings.grid);
       applySettings(); saveSettings();
     });
 
@@ -350,7 +393,7 @@
     bindSlider("cust-blur", "cust-blur-val", function (v) { return v + "px"; }, function (v) { settings.blur = clamp(v, 0, 20); });
 
     // custom colors
-    var c1 = $("cust-c1"), c2 = $("cust-c2");
+    var c1 = $("cust-c1"), c2 = $("cust-c2"), c3 = $("cust-c3");
     if (c1) {
       c1.value = settings.c1;
       c1.addEventListener("input", function () {
@@ -362,6 +405,13 @@
       c2.value = settings.c2;
       c2.addEventListener("input", function () {
         settings.c2 = c2.value; settings.preset = "custom"; markPreset();
+        applySettings(); saveSettings();
+      });
+    }
+    if (c3) {
+      c3.value = settings.c3;
+      c3.addEventListener("input", function () {
+        settings.c3 = c3.value; settings.preset = "custom"; markPreset();
         applySettings(); saveSettings();
       });
     }
@@ -414,8 +464,10 @@
         if (reducedMotion) settings.animated = false;
         // refresh controls
         markPreset();
+        markBgmode();
         setSwitch(swAnim, settings.animated);
         setSwitch(swLinks, settings.links);
+        setSwitch(swGrid, settings.grid);
         if (slP) { slP.value = settings.particles; $("cust-particles-val").textContent = settings.particles; }
         if (slS) { slS.value = settings.speed; $("cust-speed-val").textContent = "1.0×"; }
         if (slG) { slG.value = settings.glow; $("cust-glow-val").textContent = settings.glow + "%"; }
@@ -424,6 +476,7 @@
         if (slB) { slB.value = settings.blur; $("cust-blur-val").textContent = settings.blur + "px"; }
         if (c1) c1.value = settings.c1;
         if (c2) c2.value = settings.c2;
+        if (c3) c3.value = settings.c3;
         applySettings(); saveSettings();
         toast("Background reset to defaults.", "success");
       });
@@ -465,7 +518,7 @@
       if (!ctx) return;
       if (document.hidden) {
         if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
-      } else if (settings.animated && !rafId) {
+      } else if (settings.animated && wantsParticles() && !rafId) {
         startLoop();
       }
     });

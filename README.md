@@ -44,18 +44,32 @@ The project has two completely separate parts:
   `.wav`. In the app the file is written straight to the phone
   (`…/Android/data/com.vocalpure.app/files/Music/VocalPure/`) via a native
   bridge — no download-page round trip.
-- **Offline & private** — no network calls at all after launch; songs
-  never leave the device.
+- **In-app updates** — the app compares its installed version against the
+  published `app-info.json` (auto-check on launch + every 30 min + a manual
+  **Check** button in Settings) and shows an update banner with one-tap
+  download via the native `openUpdatePage()` bridge.
+- **Appearance studio** — Settings → Appearance offers a **background
+  mode** field (Gradient glow / Minimal flat / My wallpaper), 6 theme
+  presets (incl. Light mode), 2 custom accent colors, wallpaper upload with
+  visibility control, and reset — saved per device.
+- **Offline & private** — no network calls at all after launch (except the
+  opt-in update check); songs never leave the device.
 
 ## The website — features
 
 - **Download center** — stable + beta APK cards, live metadata from
   `app-info.json`, SHA-256 display, copy-link button, install guide,
   requirements and changelog, QR code pointing at the APK URL.
+- **Live updates for every visitor** — the page re-checks
+  `app-info.json` every minute (plus on tab focus/visibility/online) and
+  applies new releases automatically with a banner + toast; open tabs
+  notify each other via `BroadcastChannel` (localStorage fallback), and a
+  manual **Check for updates** button shows the last-check time.
 - **Animated background** — drifting gradient orbs, grid glow and an
   interactive canvas particle field; **Background Studio** (bottom-right)
-  to pick 6 theme presets or custom accents, tune particles, or upload a
-  wallpaper — saved in `localStorage`.
+  with a **background-mode** field (Full / Orbs / Particles / Minimal), 6
+  theme presets or 3 custom accent colors, particle/speed/glow/hue tuning,
+  grid toggle, and wallpaper upload — saved in `localStorage`.
 - Responsive, accessible (ARIA, keyboard, `prefers-reduced-motion`).
 
 ## Project structure

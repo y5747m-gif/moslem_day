@@ -48,6 +48,17 @@
     </div>
   </header>
 
+  <!-- ===== Live update banner (shown when a new version is published) ===== -->
+  <div class="update-banner" id="update-banner" role="status" hidden>
+    <div class="update-banner-inner">
+      <p><strong id="update-banner-title">New version available</strong><span id="update-banner-sub">This page was updated automatically.</span></p>
+      <div class="update-banner-actions">
+        <a href="#download" class="btn btn-primary btn-sm" id="update-banner-btn">See what's new</a>
+        <button type="button" class="btn btn-ghost btn-sm" id="update-banner-close">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
   <main id="top">
     <!-- ===== Hero ===== -->
     <section class="hero">
@@ -221,6 +232,14 @@
         <h2 class="reveal">Download <span class="gradient-text">VocalPure APK</span></h2>
         <p class="section-sub reveal">Free direct download, straight from us. Verify the SHA-256 checksum after downloading for maximum safety.</p>
 
+        <div class="update-check reveal">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-check-updates">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 11-2.6-6.4M21 4v5h-5"/></svg>
+            Check for updates
+          </button>
+          <span class="update-check-note" id="update-check-note">Auto-checks every minute · Last checked: just now</span>
+        </div>
+
         <div class="dl-grid">
           <article class="dl-card dl-main reveal">
             <div class="dl-head">
@@ -355,8 +374,17 @@
         <button type="button" class="preset" data-preset="emerald" style="--p1:#34d399;--p2:#3b82f6"><span>Aurora</span></button>
       </div>
 
+      <p class="cust-label">Background mode</p>
+      <div class="bgmode-grid" id="bgmode-grid" role="group" aria-label="Background mode">
+        <button type="button" class="bgmode is-active" data-bgmode="full"><span>Full</span></button>
+        <button type="button" class="bgmode" data-bgmode="orbs"><span>Orbs</span></button>
+        <button type="button" class="bgmode" data-bgmode="particles"><span>Particles</span></button>
+        <button type="button" class="bgmode" data-bgmode="minimal"><span>Minimal</span></button>
+      </div>
+
       <label class="cust-row"><span>Animate background</span><button type="button" class="switch is-on" id="cust-animate" role="switch" aria-checked="true" aria-label="Animate background"><i></i></button></label>
       <label class="cust-row"><span>Particle connections</span><button type="button" class="switch is-on" id="cust-links" role="switch" aria-checked="true" aria-label="Particle connections"><i></i></button></label>
+      <label class="cust-row"><span>Grid overlay</span><button type="button" class="switch is-on" id="cust-grid" role="switch" aria-checked="true" aria-label="Grid overlay"><i></i></button></label>
 
       <label class="cust-slider"><span>Particles <b id="cust-particles-val">110</b></span><input type="range" id="cust-particles" min="0" max="220" value="110" /></label>
       <label class="cust-slider"><span>Speed <b id="cust-speed-val">1.0×</b></span><input type="range" id="cust-speed" min="0" max="300" value="100" /></label>
@@ -367,6 +395,7 @@
       <div class="cust-colors">
         <label>Accent 1 <input type="color" id="cust-c1" value="#a855f7" /></label>
         <label>Accent 2 <input type="color" id="cust-c2" value="#3b82f6" /></label>
+        <label>Accent 3 <input type="color" id="cust-c3" value="#22d3ee" /></label>
       </div>
 
       <p class="cust-label">Your own wallpaper</p>
