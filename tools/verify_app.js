@@ -127,15 +127,26 @@ for (const [label, re] of FORBIDDEN) {
 
 /* the only player path must be the voice engine */
 check("app routes playback through the AI engine", /AudioWorkletNode/.test(read("app/app.js")) && /vp-ai-voice/.test(read("app/vp-ai-engine.js")));
-check("no decodeAudioData of whole songs for playback", !/decodeArrayBuffer\(/.test(read("app/app.js")) ||
-  !/getBuffer\(/.test(read("app/app.js")));
+/* whole-song decode is now deliberate (the music is removed BEFORE playback
+   in an offline render), but it must stay duration-capped so memory is
+   bounded, and it must run through the same AI worklet */
+check("pre-playback render is duration-capped (bounded memory)",
+  /PP_MAX_SECONDS\s*=\s*\d+/.test(read("app/app.js")) && /duration\s*>\s*PP_MAX_SECONDS/.test(read("app/app.js")));
+check("pre-playback render runs through the AI worklet offline",
+  /OfflineAudioContext/.test(read("app/app.js")) && /audioWorklet/.test(read("app/app.js")) && /vp-ai-voice/.test(read("app/app.js")));
 
 /* --------------------------------------------------- fail-closed graph */
 section("Fail-closed audio graph (no unfiltered path)");
 {
   const appSrc = read("app/app.js");
   const engSrc = read("app/vp-ai-engine.js");
-  check("no direct unfiltered path to the output", !/mediaSrc\.connect\(voiceGain\)/.test(appSrc));
+  /* wireGraph() is the only place the media source is connected; the direct
+     routing exists exactly once and only in "pre" mode, where the element's
+     source is always the already-purified render — never the original file */
+  const directHits = appSrc.match(/mediaSrc\.connect\(voiceGain\)/g) || [];
+  check("direct source routing exists only as the pre-gated purified-render path",
+    directHits.length === 1 && /mode === "pre"/.test(appSrc) && /mediaSrc\.connect\(aiNode\)/.test(appSrc),
+    directHits.length + " direct routing(s)");
   check("no weak filter fallback", !/useFilterEngine/.test(appSrc));
   check("no unity-mask bypass in the worklet", !/[pd]\.bypass/.test(engSrc));
   check("engine failures surface a visible error",

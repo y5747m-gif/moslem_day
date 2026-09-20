@@ -1,14 +1,21 @@
 # VocalPure — Download site + standalone Android music player
 
-VocalPure is an Android music player with an offline, real-time **spectral
-voice-enhancement engine**. It reduces accompaniment, but is not a trained
-neural source-separation model and cannot guarantee music-free vocals.
+VocalPure is an Android music player with an offline **spectral
+voice-enhancement engine** that processes every song **before it plays**
+(only very long files are processed live, in stream). It reduces
+accompaniment, but is not a trained neural source-separation model and
+cannot guarantee music-free vocals.
 
-> **Unreleased source fixes (2026-09-20):** corrected Bluetooth broadcasts,
-> system-managed media routing, transient focus recovery, safe disconnect
-> pauses, playback buffering hint, and centre extraction in Max. The existing
-> v2.12.0 APK in `downloads/` has **not** been rebuilt with these changes.
-> See `tools/AUDIO_FIX_NOTES.md` for validation and remaining limitations.
+> **Unreleased source changes (2026-09-20):** (1) corrected Bluetooth
+> broadcasts, system-managed media routing, transient focus recovery, safe
+> disconnect pauses, playback buffering hint, and centre extraction in Max —
+> see `tools/AUDIO_FIX_NOTES.md`; (2) **the music is now removed BEFORE
+> playback** — every song is rendered through the AI engine offline first and
+> only the purified render plays (files over 12 min still use the live
+> engine), the WAV export became an instant write of that render, and a
+> **pinned in-app control bar** (mini player) was added above the tab bar —
+> see `tools/PREPROCESS_NOTES.md`. The existing v2.12.0 APK in `downloads/`
+> has **not** been rebuilt with these changes.
 
 The project has two completely separate parts:
 
@@ -24,8 +31,31 @@ The project has two completely separate parts:
 
 ## The app — features
 
-- **Always-on spectral voice enhancement** — playback is routed through the
-  worklet, with no unprocessed fallback if initialization fails.
+- **Music removed BEFORE playback, not live** — every song is decoded once
+  and rendered through the AI voice engine in an `OfflineAudioContext`
+  (faster than real time, with a progress bar and a cancel-able auto-start),
+  and the player then simply streams that purified render. The listener
+  never hears a half-separated warm-up stream, the engine's stats over the
+  *whole* track become the song's profile, and changing a separation
+  setting re-renders the song (cached per setting, position preserved). See
+  `tools/PREPROCESS_NOTES.md`. *(Source change — the released v2.12.0 APK
+  still processes live.)*
+- **Bounded memory by design** — pre-rendering is capped at 12 minutes
+  (files whose metadata/decode says longer still play through the live
+  streaming worklet, 100 % processed, never unfiltered), only the current
+  render plus the two most recent stay cached, and the fail-closed graph
+  keeps its no-unfiltered-path guarantee in both modes.
+- **Pinned in-app control bar (mini player)** — a persistent bar docked
+  above the tab bar on every screen while a song is selected: cover,
+  title, render progress / artist, a thin progress line and
+  play/pause/next/previous one tap away; the body opens the full player.
+- **Instant WAV export** — the purified render already exists as a complete
+  WAV, so saving is a straight chunked write to `Music/VocalPure` (native
+  bridge) or a browser download — no 1× real-time recording. The
+  capture-as-it-plays export is kept only for the live (over-12-min) files.
+- **AI panel** — render progress while the song is prepared, then the
+  whole-track analysis the offline render collected: voice activity, how
+  many dB of music were cut, and the pitch the engine locked onto.
 - **Max / Center voice** — combines spectral gating with centre extraction to
   reduce stereo accompaniment. Mono/centred instruments can still pass, and
   off-centre vocals or reverb can be lost. This is not “100% isolation”.
@@ -45,16 +75,13 @@ The project has two completely separate parts:
   interruptions resume only when playback was active and not manually paused.
   A playback latency hint gives the browser room for buffering. Physical-device
   testing is still required; these changes do not guarantee stutter-free audio.
-- **Streamed playback (no more crashes on big files)** — songs are piped
-  into the engine through a media element (`blob:` for imported files, the
-  Android streaming bridge with real HTTP **range** support for phone-library
-  files). Nothing is ever decoded into an `AudioBuffer`, so a two-hour
-  recording behaves exactly like a three-minute single. The old engine's
-  whole-file `decodeAudioData` + Base64 path — the source of the crash — is
-  gone.
-- **Live AI panel** — the Now Playing screen shows voice activity, how many
-  dB of music were cut, the pitch the engine locked onto, its state and its
-  processing latency, updating live while the song plays.
+- **Long recordings still stream through the live engine** — files over
+  12 minutes are piped into the worklet through the media element (`blob:`
+  for imported files, the Android streaming bridge with real HTTP **range**
+  support for phone-library files) instead of a whole-file decode, so a
+  two-hour lecture cannot exhaust the phone's memory — still 100 %
+  processed, never unfiltered. The ancient `decodeAudioData` + Base64
+  *playback* path that used to crash the app stays gone.
 - **Library** — import multiple songs at once (file picker, drag & drop),
   auto-parsed “Artist – Title” names, **embedded cover art** extracted from
   the file (or the built-in artwork when none), duration, sort by
@@ -72,8 +99,9 @@ The project has two completely separate parts:
   “silence the music-only parts” gate. None of them can bring the music back.
 - **5-band equalizer** — 60 Hz – 14 kHz with presets (Flat, Pop, Rock,
   Jazz, Bass Boost, Vocal Boost, …).
-- **WAV export** — the purified voice is **captured from the engine while
-  the song plays** and streamed to disk in 1.5 MB chunks (native
+- **WAV export (live-engine files)** — for over-12-minute tracks the
+  purified voice is captured from the live engine as the song plays and
+  streamed to disk in 1.5 MB chunks (native
   `writeFile(name, base64Chunk, finalChunk)` + `finishWav()` header patch),
   so export memory stays flat no matter how long the track is. Chrome/desktop
   falls back to a blob download.
@@ -118,7 +146,8 @@ The project has two completely separate parts:
 ├── app/                    # the STANDALONE app (what the APK contains)
 │   ├── index.html          # player shell: library/search/playlists/settings
 │   ├── style.css           # its own UI theme (warm amber/coral)
-│   ├── app.js              # player: streaming transport, library, AI panel
+│   ├── app.js              # player: pre-playback render pipeline, transport,
+│                           # library, AI panel, pinned mini player
 │   ├── vp-ai-engine.js     # the AI voice engine (AudioWorklet, engine v6)
 │   ├── vp-cover.js         # embedded cover-art extractor (ID3v2/FLAC/MP4/OGG)
 │   └── app-info.json       # in-APK version/changelog fallback
@@ -174,11 +203,15 @@ from the native `AppBridge.appInfo()`.
 
 ## The AI voice engine (engine v6)
 
-Playback has exactly one route and one destination — the isolated voice:
+Playback has exactly one destination — the isolated voice. Normal songs are
+purified BEFORE they ever play; only over-long files are processed live:
 
 ```
-<audio> (stream) → MediaElementSource → AI worklet → voice boost
-                → compressor → 5-band EQ → master → speakers
+normal songs:  file → decode → offline render through the AI worklet
+             → purified WAV → <audio> → voice boost → compressor
+             → 5-band EQ → master → speakers
+long files:    <audio> (stream) → MediaElementSource → AI worklet
+             → voice boost → compressor → 5-band EQ → master → speakers
 ```
 
 `app/vp-ai-engine.js` registers an `AudioWorkletProcessor` (`"vp-ai-voice"`)
@@ -256,16 +289,19 @@ node tools/smoke_site.js      # jsdom test of the download page
   `METADATA_BLOCK_PICTURE`) and asserts the production extractor
   (`app/vp-cover.js`) returns the exact same image bytes — plus
   corrupt-tag, truncated-input and base64 round-trip checks.
-- **`smoke_app.js`** — boots the real app inside jsdom with mocked Web Audio,
-  IndexedDB and the Android bridge, then drives it: device scan, streamed
-  playback (`blob:` and `vocalpure.local/audio?path=` sources), worklet
-  creation + params, live meters, strength/boost/denoise controls, transport,
-  the pinned-notification bridge (meta/play-state/focus/wake-lock), audio
-  output routing (settings change, Bluetooth disconnect fallback, native
-  output cycling), embedded-cover extraction from a real ID3v2 MP3 into the
-  rows, Now Playing and the notification, search, playlists, EQ, themes,
-  import, oversized-file rejection, capture export and library clearing —
-  plus a scope analysis that fails on any symbol used but never declared.
+- **`smoke_app.js`** — boots the real app inside jsdom with mocked Web Audio
+  (incl. an `OfflineAudioContext` render mock), IndexedDB and the Android
+  bridge, then drives it: device scan, **pre-playback processing** (regular
+  songs play the purified render blob; the over-length fixture plays live),
+  worklet creation + params, live meters, strength/boost/denoise controls
+  (with re-rendering), transport, the **pinned in-app control bar**, the
+  pinned-notification bridge (meta/play-state/focus/wake-lock), audio output
+  routing (settings change, Bluetooth disconnect fallback, native output
+  cycling), embedded-cover extraction from a real ID3v2 MP3 into the rows,
+  Now Playing and the notification, search, playlists, EQ, themes, import,
+  oversized-file rejection, **instant pre-render export**, fail-closed boot
+  without AudioWorklet, and library clearing — plus a scope analysis that
+  fails on any symbol used but never declared.
 - **`smoke_site.js`** — the download page fills in live metadata from
   `app-info.json` (version, size, SHA-256, date, changelog), both download
   buttons point at the APK that is actually in `downloads/`, the QR code is

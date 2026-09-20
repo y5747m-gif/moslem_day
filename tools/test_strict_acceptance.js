@@ -19,8 +19,14 @@ function check(name, ok, detail) {
   if (!ok) failed++;
 }
 // Narrow regression guards for known unsafe paths, not graph verification.
-check("no known pre-initialization original connection",
-  !/mediaSrc\.connect\(voiceGain\)/.test(app));
+// The single mediaSrc → voiceGain connection is the pre-gated purified-render
+// path (wireGraph "pre" mode plays only already-purified renders); the
+// original stream is wired exclusively through the AI node ("live" mode).
+const directRoutes = app.match(/mediaSrc\.connect\(voiceGain\)/g) || [];
+check("original stream is never wired straight to the output (only the pre-gated purified render)",
+  directRoutes.length === 1 && /mode === "pre"/.test(app) && /mediaSrc\.connect\(aiNode\)/.test(app));
+check("pre-playback render is duration-capped (bounded memory)",
+  /PP_MAX_SECONDS\s*=\s*\d+/.test(app) && /duration\s*>\s*PP_MAX_SECONDS/.test(app));
 check("no legacy filter fallback", !/useFilterEngine\s*\(/.test(app));
 check("no worklet bypass parameter", !/typeof d\.bypass/.test(source));
 

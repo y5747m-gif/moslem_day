@@ -69,10 +69,10 @@
           <div class="home-hero-copy">
             <p class="home-kicker">VocalPure · AI voice engine</p>
             <h1>Import songs.<br /><em>Only the voice</em> plays.</h1>
-            <p class="home-sub">The AI engine listens to every track while it streams, isolates the voice and removes the music — automatically, on your phone, offline. Big files are safe: songs are streamed, never decoded into memory.</p>
+            <p class="home-sub">The AI engine processes every song BEFORE it plays — isolates the voice and removes the music — automatically, on your phone, offline. You only ever hear the purified voice render.</p>
             <p class="auto-pill" id="auto-pill">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>
-              AI isolation · always on · no music option
+              AI isolation · processed before playback · no music option
             </p>
           </div>
           <div class="hero-actions">
@@ -353,6 +353,29 @@
       </section>
     </main>
 
+    <!-- ===== Pinned music control bar (mini player) ===== -->
+    <div id="miniplayer" aria-label="Music control" hidden>
+      <div class="mp-progress" aria-hidden="true"><i id="mp-progress-fill"></i></div>
+      <button type="button" class="mp-main" id="mp-main" aria-label="Open the player">
+        <span class="mp-art" id="mp-art" aria-hidden="true">♪</span>
+        <span class="mp-meta">
+          <strong id="mp-title">Nothing playing</strong>
+          <span id="mp-sub">Add songs to get started</span>
+        </span>
+      </button>
+      <div class="mp-controls">
+        <button type="button" class="mp-btn" id="mp-prev" aria-label="Previous song">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M6 5h2.4v14H6zM20 5v14L9.5 12z"/></svg>
+        </button>
+        <button type="button" class="mp-btn mp-playbtn" id="mp-play" aria-label="Play or pause">
+          <svg id="mp-play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor" aria-hidden="true"><path d="M7.5 4.8v14.4L20 12z"/></svg>
+        </button>
+        <button type="button" class="mp-btn" id="mp-next" aria-label="Next song">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M15.6 5H18v14h-2.4zM4 5v14l10.5-7z"/></svg>
+        </button>
+      </div>
+    </div>
+
     <!-- ===== Bottom tab bar ===== -->
     <nav id="tabbar" aria-label="Main navigation">
       <button type="button" class="tab is-active" data-screen="home" aria-label="Home">
@@ -399,7 +422,7 @@
           <div class="ai-orb" aria-hidden="true"><span>AI</span><i></i></div>
           <div class="np-engine-meta">
             <b id="np-strategy">AI voice isolation</b>
-            <span id="np-strategy-detail">Add a song — the AI analyzes it while it plays and removes the music.</span>
+            <span id="np-strategy-detail">Add a song — the AI removes the music before it plays, so you only ever hear the voice.</span>
             <div class="ai-meters">
               <div class="ai-meter">
                 <span class="ai-meter-name">Voice</span>
@@ -454,7 +477,7 @@
 
           <div id="panel-sound" class="np-panel" role="tabpanel">
             <p class="pure-banner" id="pure-banner">
-              <b>Pure voice mode.</b> The AI removes the music live from the stream — VocalPure has
+              <b>Pure voice mode.</b> The AI removes the music BEFORE the song plays — VocalPure has
               no music mode, no stem mixer and no music level.
             </p>
             <div class="ai-strength-row" role="group" aria-label="AI separation strength">
@@ -464,7 +487,7 @@
               <button type="button" class="ai-btn" data-ai="max" aria-pressed="false">Max</button>
               <button type="button" class="ai-btn is-active" data-ai="precision" aria-pressed="true">Center voice</button>
             </div>
-            <div class="quality-note">🔊 <b>4K Audio quality</b> — preserves the original file's highest available sample rate without compressing it.</div>
+            <div class="quality-note">🔊 <b>Pre-processed render</b> — every song is purified at up to 48 kHz before it plays; changing the strength re-renders the track.</div>
             <p class="engine-line" id="engine-line">Starting the on-device AI engine…</p>
             <div class="set-row">
               <span class="set-label">Voice boost<small class="set-sub">Make-up gain for the isolated voice</small></span>
