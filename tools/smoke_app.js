@@ -181,7 +181,8 @@ function boot(opts) {
   win.URL.createObjectURL = () => "blob:mock/" + Math.random().toString(36).slice(2);
   win.URL.revokeObjectURL = () => {};
   win.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ version: "2.9.0", changelog: ["AI voice engine", "large files"] }) });
-  win.indexedDB = FakeIndexedDB.indexedDB;
+  /* a fresh factory per boot so scenarios cannot see each other's songs */
+  win.indexedDB = new FakeIndexedDB.IDBFactory();
   win.IDBKeyRange = FakeIndexedDB.IDBKeyRange;
   win.XMLHttpRequest = function () { this.open = () => {}; this.send = () => {}; this.setRequestHeader = () => {}; };
 
@@ -396,7 +397,10 @@ function file(name, size, type) {
     frow.dispatchEvent(new fw.Event("click", { bubbles: true }));
     await sleep(150);
     const ftitle = (fw.document.getElementById("np-title") || {}).textContent || "";
-    check("playback still starts in fallback mode", /Big Song/.test(ftitle), ftitle);
+    const faudio = fw.document.querySelector("audio");
+    check("playback still starts in fallback mode",
+      /Big Song|Second/.test(ftitle) && !!faudio && /vocalpure\.local\/audio\?path=/.test(faudio.src),
+      ftitle + " · " + (faudio ? faudio.src.slice(0, 44) : "no audio element"));
     const fline = (fw.document.getElementById("engine-line") || {}).textContent || "";
     check("fallback engine announced in the UI", /AudioWorklet|filter/i.test(fline), fline.slice(0, 70));
   }

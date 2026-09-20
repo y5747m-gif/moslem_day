@@ -106,7 +106,8 @@ The project has two completely separate parts:
 ├── tools/                  # verification harnesses (not shipped)
 │   ├── verify_app.js       # static checks: syntax, DOM contract, metadata
 │   ├── test_ai_engine.js   # DSP harness: runs the real worklet in Node
-│   └── smoke_app.js        # jsdom functional test + undeclared-symbol scan
+│   ├── smoke_app.js        # jsdom functional test + undeclared-symbol scan
+│   └── smoke_site.js       # jsdom test of the download page + metadata
 └── downloads/
     ├── VocalPure-v2.9.0.apk        # signed stable app (Android 8.0+) — AI voice engine
     ├── VocalPure-v2.8.0.apk        # previous stable (kept for reference)
@@ -201,6 +202,7 @@ without the adaptive spectral model.
 node tools/verify_app.js      # static: syntax, DOM contract, assets, metadata
 node tools/test_ai_engine.js  # runs the real worklet source in Node (16 checks)
 node tools/smoke_app.js       # jsdom functional test + undeclared-symbol scan
+node tools/smoke_site.js      # jsdom test of the download page
 # first time only: npm --prefix tools install
 ```
 
@@ -221,6 +223,11 @@ node tools/smoke_app.js       # jsdom functional test + undeclared-symbol scan
   search, playlists, EQ, themes, import, oversized-file rejection, capture
   export and library clearing — plus a scope analysis that fails on any
   symbol used but never declared.
+- **`smoke_site.js`** — the download page fills in live metadata from
+  `app-info.json` (version, size, SHA-256, date, changelog), both download
+  buttons point at the APK that is actually in `downloads/`, the QR code is
+  produced, no runtime error fires, and the copy promises none of the removed
+  features (karaoke / two-track / “my mix”).
 - APKs verified with `android/verify_apk.py` (v2/v3 digests + RSA signatures
   + certificate match) **and** androguard (v1+v2+v3 present, manifest fields,
   bundled-asset listing — no website content inside); the file on disk
