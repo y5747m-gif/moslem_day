@@ -143,6 +143,28 @@ section("Fail-closed audio graph (no unfiltered path)");
   check("selective disconnect() (old-WebView hazard) is gone", !/\.disconnect\(voiceGain\)/.test(appSrc));
 }
 
+/* ------------------------------------------------------ native bridge guards */
+section("Android playback bridge");
+const nativeJava = read("android/src/com/vocalpure/app/MainActivity.java");
+const serviceJava = read("android/src/com/vocalpure/app/PlayerService.java");
+const manifest = read("android/AndroidManifest.xml");
+check("pinned notice is present in the app shell",
+  /id="pinned-message"[^>]*data-pinned="true"/.test(appHtml));
+check("Bluetooth listens for the real A2DP state action",
+  /android\.bluetooth\.a2dp\.profile\.action\.CONNECTION_STATE_CHANGED/.test(nativeJava));
+check("scoped-storage tracks get a playable content URI",
+  /ContentUris\.withAppendedId\(uri, id\)/.test(nativeJava));
+check("native audio responses are binary, not UTF-8 encoded",
+  /new WebResourceResponse\(mime, null, 206/.test(nativeJava) &&
+  /new WebResourceResponse\(mime, null, 200/.test(nativeJava));
+check("Bluetooth Connect permission is declared",
+  /android\.permission\.BLUETOOTH_CONNECT/.test(manifest));
+check("Bluetooth profile proxy is closed through the public API",
+  /closeProfileProxy\(BluetoothProfile\.A2DP/.test(nativeJava) &&
+  !/BluetoothProxyProxy/.test(nativeJava));
+check("notification Stop also pauses the player",
+  /onNativeMediaAction\('pause'\)/.test(serviceJava));
+
 /* --------------------------------------------------------------- app-info */
 section("Release metadata");
 const info = JSON.parse(read("app-info.json"));

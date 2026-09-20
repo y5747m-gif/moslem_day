@@ -6,6 +6,9 @@
   "downloadPage": "https://github.com/y5747m-gif/moslem_day",
   "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
+    "Fixed Android phone-library playback on scoped-storage devices, including stable content URIs, binary range streaming and filenames containing plus signs",
+    "Fixed Bluetooth routing and focus hand-offs, with correct A2DP state tracking, permissions and notification stop behavior",
+    "The pinned VocalPure notice is included in the APK and stays visible above the scrollable app screens",
     "100% Isolation is now the default: the Max preset applies the pure (hard) mask — everything the engine classifies as music is silenced completely, leaving only the human voice",
     "New pure separation path at Max: a hard 115 Hz–9 kHz vocal band, a zero residual floor and a 0.35 logit gate — the sustained-instrument suppressor mutes drones and unchanging tones within about 2 seconds",
     "Cover art: the artwork embedded in your files is now extracted and shown — ID3v2 APIC (MP3), FLAC PICTURE, M4A/MP4 covr (moov at the front or the end) and OGG METADATA_BLOCK_PICTURE — with a built-in artwork when a file carries none",

@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothProfile;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -14,6 +15,8 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Color;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceCallback;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.net.Uri;
@@ -21,6 +24,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.PowerManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.MediaStore;
 import android.provider.Settings;
 import android.util.Base64;
@@ -43,7 +48,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
-import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -82,6 +86,9 @@ public class MainActivity extends Activity {
     public static final String PERMISSION_READ_MEDIA_AUDIO = "android.permission.READ_MEDIA_AUDIO";
     public static final String PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
     public static final String PERMISSION_WRITE_EXTERNAL_STORAGE = "android.permission.WRITE_EXTERNAL_STORAGE";
+    public static final String PERMISSION_BLUETOOTH = "android.permission.BLUETOOTH";
+    public static final String PERMISSION_BLUETOOTH_ADMIN = "android.permission.BLUETOOTH_ADMIN";
+    public static final String PERMISSION_BLUETOOTH_CONNECT = "android.permission.BLUETOOTH_CONNECT";
 
     /* the WebView is process-wide state: the foreground service and the
        audio routing receivers run JS through it */
@@ -100,6 +107,8 @@ public class MainActivity extends Activity {
     private Object a2dpProxy;
     private volatile boolean btA2dpConnected = false;
     private BroadcastReceiver audioReceiver;
+    private AudioDeviceCallback audioDeviceCallback;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     /** Audio output selected by the user (notification or settings).
         volatile: the JS bridge thread writes it, the UI thread reads it. */
@@ -143,6 +152,7 @@ public class MainActivity extends Activity {
             @Override public void run() {
                 try { a.applyRouting(); } catch (Throwable ignored) { }
                 runJs("onNativeMediaAction('output-sync:" + audioOutput + "')");
+                PlayerService.refreshNotification();
             }
         });
     }
@@ -152,10 +162,21 @@ public class MainActivity extends Activity {
     /* ------------------------------------------------------------------ */
 
     public boolean hasAudioPermission() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            return checkSelfPermission(PERMISSION_READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED;
-        } else if (Build.VERSION.SDK_INT >= 23) {
-            return checkSelfPermission(PERMISSION_READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+        if (Build.VERSION.SDK_INT >= 23) {
+            /* This APK deliberately targets SDK 29. On Android 13+ a
+               target-29 app still receives the legacy media permission; asking
+               only for READ_MEDIA_AUDIO leaves the scanner permanently denied
+               on many phones. Accept either grant so upgrades work too. */
+            return checkSelfPermission(PERMISSION_READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+                    || (Build.VERSION.SDK_INT >= 33
+                    && checkSelfPermission(PERMISSION_READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED);
+        }
+        return true;
+    }
+
+    private boolean hasBluetoothPermission() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            return checkSelfPermission(PERMISSION_BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
         }
         return true;
     }
@@ -163,17 +184,17 @@ public class MainActivity extends Activity {
     public void requestAudioPermissions() {
         if (Build.VERSION.SDK_INT >= 23) {
             List<String> list = new ArrayList<String>();
-            if (Build.VERSION.SDK_INT >= 33) {
-                if (checkSelfPermission(PERMISSION_READ_MEDIA_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-                    list.add(PERMISSION_READ_MEDIA_AUDIO);
-                }
-            } else {
-                if (checkSelfPermission(PERMISSION_READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    list.add(PERMISSION_READ_EXTERNAL_STORAGE);
-                }
-                if (Build.VERSION.SDK_INT <= 29 && checkSelfPermission(PERMISSION_WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    list.add(PERMISSION_WRITE_EXTERNAL_STORAGE);
-                }
+            /* Keep the legacy permission for this targetSdk. It is the
+               compatibility permission Android 13 exposes to target-29 apps. */
+            if (checkSelfPermission(PERMISSION_READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                list.add(PERMISSION_READ_EXTERNAL_STORAGE);
+            }
+            if (Build.VERSION.SDK_INT <= 29
+                    && checkSelfPermission(PERMISSION_WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                list.add(PERMISSION_WRITE_EXTERNAL_STORAGE);
+            }
+            if (Build.VERSION.SDK_INT >= 31 && !hasBluetoothPermission()) {
+                list.add(PERMISSION_BLUETOOTH_CONNECT);
             }
             if (!list.isEmpty()) {
                 requestPermissions(list.toArray(new String[0]), PERMISSION_REQ_CODE);
@@ -250,7 +271,11 @@ public class MainActivity extends Activity {
                         String rawPath = reqUri.getQueryParameter("path");
                         if (rawPath != null && !rawPath.isEmpty()) {
                             try {
-                                String path = URLDecoder.decode(rawPath, "UTF-8");
+                                /* Uri.getQueryParameter already percent-decodes
+                                   this value. Decoding a second time turns a
+                                   perfectly valid '+' in a filename into a
+                                   space and makes that song unplayable. */
+                                String path = rawPath;
                                 InputStream is = null;
                                 long total = -1;
                                 if (path.startsWith("content://")) {
@@ -310,10 +335,12 @@ public class MainActivity extends Activity {
                                     if (partial) {
                                         long len = end - start + 1;
                                         String contentRange = "bytes " + start + "-" + end + "/" + total;
-                                        return new WebResourceResponse(mime, "UTF-8", 206, "Partial Content",
+                                        /* Audio is binary. A UTF-8 encoding here makes some WebViews
+                                           decode/corrupt the stream before MediaElementSource sees it. */
+                                        return new WebResourceResponse(mime, null, 206, "Partial Content",
                                                 corsHeaders(len, contentRange), new RangeStream(is, start, len));
                                     }
-                                    return new WebResourceResponse(mime, "UTF-8", 200, "OK",
+                                    return new WebResourceResponse(mime, null, 200, "OK",
                                             corsHeaders(total > 0 ? total : -1, null), is);
                                 }
                             } catch (Exception ignored) {
@@ -355,14 +382,10 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         if (requestCode == PERMISSION_REQ_CODE) {
-            boolean granted = false;
-            for (int r : grantResults) {
-                if (r == PackageManager.PERMISSION_GRANTED) {
-                    granted = true;
-                    break;
-                }
-            }
-            final boolean isGranted = granted;
+            /* Bluetooth CONNECT may be granted while storage is denied (or
+               vice versa). Do not report success to the page merely because
+               one unrelated permission in the batch was accepted. */
+            final boolean isGranted = hasAudioPermission();
             if (web != null) {
                 web.post(new Runnable() {
                     @Override
@@ -506,6 +529,20 @@ public class MainActivity extends Activity {
     /* ------------------------------------------------------------------ */
 
     public boolean btConnected() {
+        /* The actual output device list is more reliable than the profile
+           callback: some vendors deliver the A2DP broadcast late or never
+           expose the profile proxy to a target-29 WebView host. */
+        if (Build.VERSION.SDK_INT >= 23 && audioManager != null) {
+            try {
+                AudioDeviceInfo[] outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+                for (AudioDeviceInfo info : outputs) {
+                    int type = info.getType();
+                    if (type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                            || type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) return true;
+                }
+            } catch (Throwable ignoredDevices) {
+            }
+        }
         try {
             Object p = a2dpProxy;
             if (p != null) {
@@ -529,28 +566,42 @@ public class MainActivity extends Activity {
         if (audioManager == null) return audioOutput;
         try {
             if ("earpiece".equals(audioOutput)) {
-                audioManager.setSpeakerphoneOn(false);
                 audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                audioManager.setSpeakerphoneOn(false);
+                try { audioManager.setBluetoothA2dpOn(false); } catch (Throwable ignored) { }
             } else if ("speaker".equals(audioOutput)) {
                 audioManager.setMode(AudioManager.MODE_NORMAL);
                 audioManager.setSpeakerphoneOn(true);
+                try { audioManager.setBluetoothA2dpOn(false); } catch (Throwable ignored) { }
             } else if ("bluetooth".equals(audioOutput)) {
-                audioManager.setSpeakerphoneOn(false);
                 audioManager.setMode(AudioManager.MODE_NORMAL);
+                audioManager.setSpeakerphoneOn(false);
                 if (!btConnected()) {
                     audioOutput = "speaker";          /* no A2DP: use the phone speaker */
                     audioManager.setSpeakerphoneOn(true);
+                } else {
+                    /* A2DP is a media route, not SCO. Do not start SCO: it
+                       changes the Bluetooth codec to the low-quality call path. */
+                    try { audioManager.setBluetoothScoOn(false); } catch (Throwable ignored) { }
+                    try { audioManager.setBluetoothA2dpOn(true); } catch (Throwable ignored) { }
                 }
             } else if ("wired".equals(audioOutput)) {
-                audioManager.setSpeakerphoneOn(false);
                 audioManager.setMode(AudioManager.MODE_NORMAL);
+                audioManager.setSpeakerphoneOn(false);
+                try { audioManager.setBluetoothA2dpOn(false); } catch (Throwable ignored) { }
                 if (!wiredConnected()) {
                     audioOutput = "speaker";          /* no jack: use the phone speaker */
                     audioManager.setSpeakerphoneOn(true);
                 }
-            } else { /* auto — let the system pick: wired > Bluetooth > speaker */
+            } else { /* auto — let Android pick wired/Bluetooth before speaker */
                 audioManager.setMode(AudioManager.MODE_NORMAL);
                 audioManager.setSpeakerphoneOn(false);
+                /* A previous explicit Speaker selection may have disabled the
+                   legacy A2DP switch. Re-enable it when a BT output exists so
+                   Auto really can follow a newly connected speaker. */
+                if (btConnected()) {
+                    try { audioManager.setBluetoothA2dpOn(true); } catch (Throwable ignored) { }
+                }
             }
         } catch (Throwable ignored) {
         }
@@ -599,7 +650,8 @@ public class MainActivity extends Activity {
                 @Override public void onReceive(Context context, Intent intent) {
                     if (intent == null || intent.getAction() == null) return;
                     String action = intent.getAction();
-                    if ("android.bluetooth.device.action.A2DP_CONNECTION_STATE".equals(action)) {
+                    if ("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED".equals(action)
+                            || "android.bluetooth.device.action.A2DP_CONNECTION_STATE".equals(action)) {
                         int state = intent.getIntExtra(
                                 "android.bluetooth.device.extra.STATE", -1);
                         if (state == BluetoothProfile.STATE_CONNECTED) {
@@ -621,17 +673,42 @@ public class MainActivity extends Activity {
                         }
                         try { applyRouting(); } catch (Throwable ignored) { }
                     } else if ("android.media.action.AUDIO_BECOMING_NOISY".equals(action)) {
-                        runJs("onNativeMediaAction('headset:unplugged')");
+                        /* This broadcast also fires for Bluetooth A2DP
+                           disconnects. Pausing here used to stop playback even
+                           though the code later fell back to the loudspeaker.
+                           The explicit wired HEADSET_PLUG event handles a cable
+                           yank; for generic noisy events just re-assert the
+                           selected route and let the A2DP callback update JS. */
+                        scheduleAudioRouteRefresh();
                     }
                 }
             };
             IntentFilter f = new IntentFilter();
+            f.addAction("android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED");
+            /* Kept for older vendor ROMs that emit the non-standard alias. */
             f.addAction("android.bluetooth.device.action.A2DP_CONNECTION_STATE");
             f.addAction("android.bluetooth.device.action.ACL_CONNECTED");
             f.addAction(Intent.ACTION_HEADSET_PLUG);
             f.addAction("android.media.action.AUDIO_BECOMING_NOISY");
             registerReceiver(audioReceiver, f);
         } catch (Throwable ignored) {
+        }
+        /* AudioDeviceCallback catches OEMs that do not broadcast A2DP state
+           reliably. Route changes are posted to the UI thread because some
+           AudioManager routing calls are not safe from Binder callbacks. */
+        if (Build.VERSION.SDK_INT >= 23 && audioManager != null) {
+            try {
+                audioDeviceCallback = new AudioDeviceCallback() {
+                    @Override public void onAudioDevicesAdded(AudioDeviceInfo[] addedDevices) {
+                        scheduleAudioRouteRefresh();
+                    }
+                    @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] removedDevices) {
+                        scheduleAudioRouteRefresh();
+                    }
+                };
+                audioManager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler);
+            } catch (Throwable ignoredDevices) {
+            }
         }
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
@@ -668,7 +745,32 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void scheduleAudioRouteRefresh() {
+        mainHandler.post(new Runnable() {
+            @Override public void run() {
+                try {
+                    boolean wasBluetooth = btConnected();
+                    if ("bluetooth".equals(audioOutput) && !wasBluetooth) {
+                        audioOutput = "speaker";
+                        runJs("onNativeMediaAction('bt:disconnected')");
+                    }
+                    applyRouting();
+                    if (wasBluetooth && btConnected()) {
+                        runJs("onNativeMediaAction('bt:connected')");
+                    }
+                } catch (Throwable ignored) { }
+            }
+        });
+    }
+
     private void registerAudioListenerOff() {
+        try {
+            if (audioDeviceCallback != null && audioManager != null && Build.VERSION.SDK_INT >= 23) {
+                audioManager.unregisterAudioDeviceCallback(audioDeviceCallback);
+                audioDeviceCallback = null;
+            }
+        } catch (Throwable ignoredDevices) {
+        }
         try {
             if (audioReceiver != null) {
                 unregisterReceiver(audioReceiver);
@@ -678,12 +780,11 @@ public class MainActivity extends Activity {
         }
         try {
             BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter != null && a2dpProxy != null) {
-                /* closeProfileProxy also takes the @hide type → reflection */
-                java.lang.reflect.Method m = BluetoothAdapter.class.getMethod(
-                        "closeProfileProxy", int.class,
-                        Class.forName("android.bluetooth.BluetoothProxyProxy"));
-                m.invoke(adapter, BluetoothProfile.A2DP, a2dpProxy);
+            if (adapter != null && a2dpProxy instanceof BluetoothProfile) {
+                /* BluetoothProfile is the public API type; the old code used
+                   a non-existent reflection class and therefore leaked the
+                   profile proxy on every Activity recreation. */
+                adapter.closeProfileProxy(BluetoothProfile.A2DP, (BluetoothProfile) a2dpProxy);
                 a2dpProxy = null;
             }
         } catch (Throwable ignored) {
@@ -949,12 +1050,17 @@ public class MainActivity extends Activity {
                         // Skip short system sounds / ringtones under 3 seconds
                         if (durMs > 0 && durMs < 3000) continue;
 
+                        /* Always use the MediaStore content URI. DATA is
+                           null or blocked by scoped storage on modern phones;
+                           the content URI is stable, permission-safe and is
+                           readable by the WebView range bridge. */
+                        String playablePath = ContentUris.withAppendedId(uri, id).toString();
                         JSONObject obj = new JSONObject();
                         obj.put("id", "dev_" + id);
                         obj.put("title", title);
                         obj.put("artist", artist);
                         obj.put("duration", durMs / 1000.0);
-                        obj.put("path", data != null ? data : "");
+                        obj.put("path", playablePath);
                         obj.put("size", size);
                         obj.put("name", name != null ? name : title);
                         arr.put(obj);

@@ -66,6 +66,11 @@ public class PlayerService extends Service {
         if (s != null) s.applyState(intent);
     }
 
+    public static void refreshNotification() {
+        PlayerService s = sInstance;
+        if (s != null) s.updateNotification();
+    }
+
     @Override
     public IBinder onBind(Intent intent) {
         return null;
@@ -83,7 +88,14 @@ public class PlayerService extends Service {
             @Override public void onPause() { MainActivity.runJs("onNativeMediaAction('pause')"); }
             @Override public void onSkipToNext()    { MainActivity.runJs("onNativeMediaAction('next')"); }
             @Override public void onSkipToPrevious(){ MainActivity.runJs("onNativeMediaAction('prev')"); }
-            @Override public void onStop()  { stopForegroundSafely(); }
+            @Override public void onStop()  {
+                /* MediaSession STOP must stop the WebView too; hiding the
+                   notification while audio continues is confusing and leaves
+                   the foreground service in a stale state. */
+                MainActivity.runJs("onNativeMediaAction('pause')");
+                stopForegroundSafely();
+                stopSelf();
+            }
             @Override public void onSeekTo(long pos) {
                 MainActivity.runJs("onNativeMediaAction('seek:" + pos + "')");
             }

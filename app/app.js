@@ -78,8 +78,8 @@
    hard the AI engine pushes the music down and how loud the voice
    comes out.
    ============================================================ */
-  var SETTINGS_KEY = "vp-app-settings-v4";
-  var LEGACY_SETTINGS_KEY = "vp-app-settings-v3";
+  var SETTINGS_KEY = "vp-app-settings-v5";
+  var LEGACY_SETTINGS_KEYS = ["vp-app-settings-v4", "vp-app-settings-v3"];
   var settings = {
     volume: 80, rate: 1,
     /* Max / "100% Isolation" is the default: the pure (hard) mask path
@@ -94,14 +94,20 @@
     try {
       var raw = localStorage.getItem(SETTINGS_KEY);
       if (!raw) {
-        /* one-time carry-over of the sound preferences from v2 libraries */
-        raw = localStorage.getItem(LEGACY_SETTINGS_KEY);
+        /* Carry over harmless transport preferences, but deliberately do not
+           carry an old weak separator preset. v2/v3 users were often left on
+           Soft/Balanced, which is exactly why music was audible after this
+           release promised voice-only playback. A migration starts at Max;
+           the user can still choose another preset afterwards. */
+        for (var li = 0; li < LEGACY_SETTINGS_KEYS.length && !raw; li++) {
+          raw = localStorage.getItem(LEGACY_SETTINGS_KEYS[li]);
+        }
         if (raw) {
-        var old = JSON.parse(raw) || {};
-        ["volume", "rate", "aiStrength", "aiBoost", "aiDenoise", "audioOutput",
-         "eqOn", "eq", "eqPreset", "shuffle", "repeat"].forEach(function (k) {
-          if (old[k] !== undefined && old[k] !== null) settings[k] = old[k];
-        });
+          var old = JSON.parse(raw) || {};
+          ["volume", "rate", "aiBoost", "aiDenoise", "audioOutput",
+           "eqOn", "eq", "eqPreset", "shuffle", "repeat"].forEach(function (k) {
+            if (old[k] !== undefined && old[k] !== null) settings[k] = old[k];
+          });
         }
       } else {
         var s = JSON.parse(raw) || {};
@@ -885,8 +891,17 @@
       } else if (action === "prev") {
         stepPrev();
       } else if (action === "focus:loss") {
-        /* another app owns the speaker — pause so we never fight for focus */
-        if (playing) pausePlayback();
+        /* another app owns the speaker — pause so we never fight for focus.
+           wantsPlay deliberately stays true, so a later focus gain resumes. */
+        if (playing) pausePlayback(true);
+      } else if (action === "focus:gain") {
+        /* Android sends gain after a Bluetooth hand-off or a transient
+           interruption. Resume only when the user had been playing before
+           the hand-off; a manually paused song must remain paused. */
+        if (wantsPlay && loaded && !playing) startAt(currentPos());
+      } else if (action === "focus:duck") {
+        /* Do not change the user's volume permanently. Android's focus
+           callback is informational here; the system mixer performs ducking. */
       } else if (action.indexOf("output-sync:") === 0) {
         /* the notification cycled the output natively — mirror the state */
         var m = action.slice("output-sync:".length);
@@ -1205,7 +1220,8 @@
     startVizLoop();
   }
 
-  function pausePlayback() {
+  function pausePlayback(preserveIntent) {
+    if (!preserveIntent) wantsPlay = false;
     if (audioEl && !audioEl.paused) { try { audioEl.pause(); } catch (e) { /* ignore */ } }
   }
 

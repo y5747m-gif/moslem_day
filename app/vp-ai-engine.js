@@ -263,19 +263,24 @@
       p.mono = false;
 
       /* ---- user parameters ---- */
-      p.strength = "balanced";
-      p.steep = AI_STRENGTH.balanced.steep;
+      /* Fail safe to the voice-only preset even if the main thread's first
+         params message is delayed/lost while a WebView creates the node. The
+         app can still explicitly choose Soft/Balanced/Strong afterwards. */
+      p.strength = "max";
+      p.steep = AI_STRENGTH.max.steep;
       p.gateOn = true;
-      p.gateTh = AI_STRENGTH.balanced.gate;
-      p.floor = AI_STRENGTH.balanced.floor;
-      p.susFloor = AI_STRENGTH.balanced.sus;
-      p.susRate = AI_STRENGTH.balanced.susRate;
+      p.gateTh = AI_STRENGTH.max.gate;
+      p.floor = AI_STRENGTH.max.floor;
+      p.susFloor = AI_STRENGTH.max.sus;
+      p.susRate = AI_STRENGTH.max.susRate;
+      p.pure = true;
+      p.pureTh = AI_STRENGTH.max.pureTh;
+      p.pureLo = AI_STRENGTH.max.pureLo;
+      p.pureHi = AI_STRENGTH.max.pureHi;
       p.capture = false;
-      /* Pure (hard) isolation — active for the max preset only */
-      p.pure = false;
-      p.pureTh = 0.35;
-      p.pureLo = 115;
-      p.pureHi = 9000;
+      /* Pure (hard) isolation — active for the max preset only. The default
+         above is Max; setStrength() changes these values when the user picks
+         another preset. */
       /* NOTE: there is intentionally no bypass/unity-mask path. The engine
          always separates; silence-until-processed is enforced by the app,
          which never routes audio around this node. */
@@ -611,7 +616,13 @@
 
       /* ---- gate music-only sections down to silence ---- */
       if (p.gateOn) {
-        var g = (p.vad - p.gateTh * 0.4) / (p.gateTh + 0.30);
+        /* Mono files have no centre/side evidence, so the same hard gate
+           would throw away quiet syllables (and can make a perfectly valid
+           mono vocal track sound empty). Keep the max preset strict for
+           stereo mixes, but use the proven Strong gate for mono material;
+           the hard mask and sustained gate still remove music/drone bins. */
+        var gateTh = p.pure && p.mono ? 0.25 : p.gateTh;
+        var g = (p.vad - gateTh * 0.4) / (gateTh + 0.30);
         g = g < 0 ? 0 : (g > 1 ? 1 : g);
         g = g * g * (3 - 2 * g);
         for (k = 0; k <= HALF; k++) mask[k] *= g;

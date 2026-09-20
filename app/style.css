@@ -85,7 +85,7 @@ input, select { font: inherit; color: inherit; }
 
 /* ---------- Pinned notice ---------- */
 .app-notice {
-  flex: none; z-index: 19; display: flex; align-items: center; gap: .5rem;
+  flex: none; position: relative; z-index: 19; display: flex; align-items: center; gap: .5rem;
   min-height: 34px; padding: .42rem .85rem; direction: rtl;
   background: linear-gradient(90deg, rgba(47,230,200,.14), rgba(58,166,255,.12));
   border-bottom: 1px solid rgba(47,230,200,.28); color: var(--text);
