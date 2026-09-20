@@ -154,11 +154,178 @@
     img.alt = "QR code linking to " + url;
   }
 
+  /* ---------------- live updates: every user gets every release ----------------
+     The page re-checks app-info.json every minute (and whenever the tab
+     becomes visible or regains focus). When a new version is published,
+     this tab updates itself automatically AND notifies every other open
+     tab via BroadcastChannel (+ localStorage fallback) so the update
+     reaches all users instantly — no manual refresh needed. */
+  var UPDATE_POLL_MS = 60000;
+  var currentVersion = "";
+  var lastCheckAt = 0;
+  var bc = null;
+  try {
+    bc = ("BroadcastChannel" in window) ? new BroadcastChannel("vocalpure-updates") : null;
+  } catch (e) { bc = null; }
+
+  function normVer(v) {
+    return String(v === undefined || v === null ? "" : v).trim().replace(/^[vV]/, "");
+  }
+
+  /* Returns >0 when a is newer than b, <0 when older, 0 when equal. */
+  function cmpVer(a, b) {
+    var pa = normVer(a).split(/[.\-+_]/), pb = normVer(b).split(/[.\-+_]/);
+    var n = Math.max(pa.length, pb.length);
+    for (var i = 0; i < n; i++) {
+      var xa = pa[i] === undefined ? "" : pa[i];
+      var xb = pb[i] === undefined ? "" : pb[i];
+      var na = parseInt(xa, 10), nb = parseInt(xb, 10);
+      var aNum = !isNaN(na) && String(na) === xa;
+      var bNum = !isNaN(nb) && String(nb) === xb;
+      if (aNum && bNum) {
+        if (na !== nb) return na > nb ? 1 : -1;
+      } else if (xa !== xb) {
+        /* a stable release beats any pre-release tag at the same numbers */
+        if (xa === "") return 1;
+        if (xb === "") return -1;
+        return xa > xb ? 1 : -1;
+      }
+    }
+    return 0;
+  }
+
+  function updateCheckNote() {
+    var note = $("update-check-note");
+    if (!note) return;
+    var when = "just now";
+    if (lastCheckAt) {
+      try { when = new Date(lastCheckAt).toLocaleTimeString(); }
+      catch (e) { when = "just now"; }
+    }
+    note.textContent = "Auto-checks every minute · Last checked: " + when;
+  }
+
+  function showUpdateBanner(info) {
+    var banner = $("update-banner");
+    if (!banner) return;
+    var title = $("update-banner-title"), sub = $("update-banner-sub");
+    var ver = info.version || (info.versionPlain ? "v" + info.versionPlain : "");
+    if (title) title.textContent = "🎉 " + ver + " is live — page updated automatically";
+    if (sub) {
+      var first = (info.changelog && info.changelog.length) ? info.changelog[0] : "";
+      sub.textContent = first ? ("Highlights: " + first) : "Download section, version labels & changelog were refreshed.";
+    }
+    banner.hidden = false;
+    var cl = $("changelog");
+    if (cl && cl.parentElement) {
+      cl.parentElement.classList.remove("flash");
+      /* force reflow so the animation replays on every new release */
+      void cl.parentElement.offsetWidth;
+      cl.parentElement.classList.add("flash");
+      setTimeout(function () { cl.parentElement.classList.remove("flash"); }, 3400);
+    }
+  }
+
+  function announceUpdate(version) {
+    var msg = { type: "vocalpure-version", version: version, at: Date.now() };
+    if (bc) {
+      try { bc.postMessage(msg); } catch (e) { /* ignore */ }
+    }
+    /* localStorage fallback for browsers without BroadcastChannel */
+    try { window.localStorage.setItem("vocalpure-update-ping", JSON.stringify(msg)); } catch (e) { /* ignore */ }
+  }
+
+  function applyRemoteInfo(info) {
+    var v = normVer(info.versionPlain || info.version);
+    if (!currentVersion) {
+      currentVersion = v;
+      fillAppInfo(info);
+      updateCheckNote();
+      return;
+    }
+    if (v && v !== currentVersion) {
+      var newer = cmpVer(v, currentVersion) > 0;
+      currentVersion = v;
+      fillAppInfo(info);
+      showUpdateBanner(info);
+      toast(newer
+        ? ("Updated automatically to " + (info.version || v) + " 🎉")
+        : ("Release info refreshed (" + (info.version || v) + ")."),
+        newer ? "success" : undefined);
+      announceUpdate(v);
+    }
+    updateCheckNote();
+  }
+
+  function fetchInfo() {
+    lastCheckAt = Date.now();
+    if (!window.fetch) return Promise.reject(new Error("no fetch"));
+    return fetch("app-info.json?t=" + Date.now(), { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("info " + res.status);
+        return res.json();
+      });
+  }
+
+  function checkForUpdates(manual) {
+    if (manual) toast("Checking for updates…");
+    fetchInfo()
+      .then(function (data) {
+        var merged = Object.assign({}, FALLBACK_INFO, data);
+        var v = normVer(merged.versionPlain || merged.version);
+        if (manual && v && v === currentVersion) {
+          toast("You're on the latest version (" + (merged.version || v) + ").", "success");
+        }
+        applyRemoteInfo(merged);
+      })
+      .catch(function () {
+        updateCheckNote();
+        if (manual) toast("Could not check for updates — are you offline?", "error");
+      });
+  }
+  window.VocalPure.checkForUpdates = checkForUpdates;
+
+  on($("btn-check-updates"), "click", function () { checkForUpdates(true); });
+  on($("update-banner-close"), "click", function () {
+    var banner = $("update-banner");
+    if (banner) banner.hidden = true;
+  });
+  on($("update-banner-btn"), "click", function () {
+    var banner = $("update-banner");
+    if (banner) banner.hidden = true;
+  });
+
+  /* Another tab spotted a new release → re-check immediately. */
+  if (bc) {
+    bc.onmessage = function (ev) {
+      var msg = ev && ev.data;
+      if (msg && msg.type === "vocalpure-version" && normVer(msg.version) !== currentVersion) {
+        checkForUpdates(false);
+      }
+    };
+  }
+  window.addEventListener("storage", function (e) {
+    if (e.key === "vocalpure-update-ping" && e.newValue) {
+      try {
+        var msg = JSON.parse(e.newValue);
+        if (msg && msg.type === "vocalpure-version" && normVer(msg.version) !== currentVersion) {
+          checkForUpdates(false);
+        }
+      } catch (err) { /* ignore */ }
+    }
+  });
+
+  /* Initial load + continuous delivery to every visitor. */
   if (window.fetch) {
-    fetch("app-info.json", { cache: "no-store" })
-      .then(function (res) { if (!res.ok) throw new Error("info " + res.status); return res.json(); })
-      .then(function (data) { fillAppInfo(Object.assign({}, FALLBACK_INFO, data)); })
-      .catch(function () { fillAppInfo(FALLBACK_INFO); });
+    fetchInfo()
+      .then(function (data) { applyRemoteInfo(Object.assign({}, FALLBACK_INFO, data)); })
+      .catch(function () { fillAppInfo(FALLBACK_INFO); updateCheckNote(); });
+    window.setInterval(function () { checkForUpdates(false); }, UPDATE_POLL_MS);
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) checkForUpdates(false);
+    });
+    window.addEventListener("focus", function () { checkForUpdates(false); });
+    window.addEventListener("online", function () { checkForUpdates(false); });
   } else {
     fillAppInfo(FALLBACK_INFO);
   }

@@ -15,7 +15,8 @@
   --muted-2: #5b707b;
   --accent: #2fe6c8;
   --accent-2: #f2c14e;
-  --grad: linear-gradient(135deg, #2fe6c8, #3aa6ff);
+  --grad-2: #3aa6ff;
+  --grad: linear-gradient(135deg, var(--accent), var(--grad-2));
   --ok: #2fe6c8;
   --danger: #ff6b81;
   --radius: 18px;
@@ -56,6 +57,7 @@ input, select { font: inherit; color: inherit; }
 /* ---------- Top bar ---------- */
 #topbar {
   flex: none;
+  position: relative;
   height: var(--top-h);
   display: flex;
   align-items: center;
@@ -82,7 +84,7 @@ input, select { font: inherit; color: inherit; }
 .tb-icon.is-fav { color: var(--accent-2); border-color: rgba(242,193,78,0.5); background: rgba(242,193,78,0.12); }
 
 /* ---------- Screens ---------- */
-#screens { flex: 1; overflow: hidden; position: relative; }
+#screens { flex: 1; overflow: hidden; position: relative; z-index: 1; }
 .screen {
   position: absolute; inset: 0;
   overflow-y: auto;
@@ -400,6 +402,8 @@ input, select { font: inherit; color: inherit; }
 /* ---------- Tab bar ---------- */
 #tabbar {
   flex: none;
+  position: relative;
+  z-index: 1;
   height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0));
   padding-bottom: env(safe-area-inset-bottom, 0);
   display: grid; grid-template-columns: repeat(4, 1fr);
@@ -704,6 +708,127 @@ input, select { font: inherit; color: inherit; }
 .toast.success { border-color: var(--ok); }
 .toast.error { border-color: var(--danger); }
 @keyframes toastIn { from { transform: translateY(10px); opacity: 0; } }
+
+/* ============================================================
+   Appearance — background layers, modes, themes
+   ============================================================ */
+#app-bg {
+  position: absolute; inset: 0; z-index: 0;
+  overflow: hidden; pointer-events: none;
+}
+.app-orb { position: absolute; border-radius: 50%; filter: blur(70px); will-change: transform; }
+.app-orb-1 {
+  width: 78%; aspect-ratio: 1; left: -22%; top: -12%;
+  background: radial-gradient(circle, var(--accent), transparent 65%);
+  opacity: 0.26;
+}
+.app-orb-2 {
+  width: 72%; aspect-ratio: 1; right: -20%; bottom: -12%;
+  background: radial-gradient(circle, var(--grad-2), transparent 65%);
+  opacity: 0.22;
+}
+#app-wallpaper {
+  position: absolute; inset: 0; z-index: 0;
+  background-size: cover; background-position: center;
+  opacity: 0.45; display: none; pointer-events: none;
+}
+
+/* Background modes */
+body[data-bgmode="minimal"] #app-bg { display: none; }
+body[data-bgmode="minimal"] #app { background: var(--bg); }
+body[data-bgmode="minimal"] .np-screen { background: var(--bg); }
+body[data-bgmode="wallpaper"] #app-bg { display: none; }
+body[data-bgmode="wallpaper"] #app-wallpaper { display: block; }
+
+/* Light theme overrides */
+body[data-theme="light"] {
+  --bg: #edf1f7;
+  --bg-2: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #e6ebf3;
+  --line: rgba(15, 23, 42, 0.1);
+  --text: #0e1526;
+  --muted: #54637a;
+  --muted-2: #8a97a8;
+}
+body[data-theme="light"] #app {
+  background:
+    radial-gradient(120% 55% at 50% -12%, rgba(14, 165, 233, 0.1), transparent 62%),
+    radial-gradient(90% 40% at 100% 110%, rgba(139, 92, 246, 0.1), transparent 60%),
+    var(--bg);
+}
+body[data-theme="light"] #topbar {
+  background: linear-gradient(180deg, rgba(237,241,247,0.97), rgba(237,241,247,0.8));
+}
+body[data-theme="light"] #tabbar { background: rgba(255, 255, 255, 0.92); }
+body[data-theme="light"] .np-screen {
+  background:
+    radial-gradient(140% 60% at 50% 0%, rgba(14, 165, 233, 0.12), transparent 55%),
+    radial-gradient(120% 50% at 50% 100%, rgba(139, 92, 246, 0.1), transparent 60%),
+    #f1f4f9;
+}
+body[data-theme="light"] .np-engine { background: rgba(255, 255, 255, 0.9); }
+body[data-theme="light"] .clarity-ring::before { background: #fff; }
+body[data-theme="light"] .np-panels { background: rgba(255, 255, 255, 0.9); }
+body[data-theme="light"] .np-progress-track { background: rgba(15, 23, 42, 0.14); }
+body[data-theme="light"] .toast { background: rgba(255, 255, 255, 0.97); }
+body[data-theme="light"] .sheet { background: #f4f6fb; }
+body[data-theme="light"] .perm-banner { color: #7a5b00; background: rgba(242, 193, 78, 0.2); }
+
+/* Theme picker controls */
+.theme-label {
+  font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); margin: 0.7rem 0 0.5rem;
+}
+.theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.theme {
+  border: 2px solid transparent; border-radius: 12px; cursor: pointer; padding: 0;
+  background: linear-gradient(135deg, var(--t1), var(--t2));
+  height: 52px; position: relative; overflow: hidden;
+  transition: transform 0.12s, border-color 0.18s;
+}
+.theme:active { transform: scale(0.96); }
+.theme.is-active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent), 0 6px 18px rgba(0, 0, 0, 0.3); }
+.theme span {
+  position: absolute; inset: auto 0 0; font-size: 0.64rem; font-weight: 700;
+  color: #fff; background: rgba(0, 0, 0, 0.45); padding: 2px 0;
+}
+.theme-colors { display: inline-flex; gap: 0.5rem; align-items: center; }
+.theme-colors input[type="color"] {
+  width: 42px; height: 32px; border: 1px solid var(--line);
+  border-radius: 9px; background: transparent; cursor: pointer; padding: 2px;
+}
+.theme-wp-btns { display: inline-flex; gap: 0.4rem; }
+
+/* ============================================================
+   In-app update banner + rows
+   ============================================================ */
+.update-banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  background: rgba(47, 230, 200, 0.1);
+  border: 1px solid rgba(47, 230, 200, 0.45);
+  border-radius: 14px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem;
+  animation: fadeIn 0.25s ease;
+}
+.update-banner[hidden] { display: none; }
+.update-banner-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.update-banner-text strong { font-size: 0.86rem; color: var(--accent); }
+.update-banner-text span { font-size: 0.76rem; color: var(--muted); line-height: 1.4; }
+.update-banner-actions { display: flex; gap: 0.4rem; flex: none; align-items: center; }
+.update-banner-actions button {
+  border: none; border-radius: 999px; cursor: pointer; font-weight: 700;
+}
+#btn-update-go {
+  background: var(--grad); color: #04211c;
+  padding: 0.45em 1em; font-size: 0.8rem;
+  box-shadow: 0 6px 18px rgba(47, 230, 200, 0.3);
+}
+#btn-update-later {
+  background: transparent; color: var(--muted);
+  width: 32px; height: 32px; font-size: 0.85rem;
+}
+#update-row:not([hidden]) { border-top: 1px solid var(--line); }
+#update-row-title { color: var(--accent); font-size: 0.9rem; }
 
 /* ---------- Small screens ---------- */
 @media (max-width: 360px) {

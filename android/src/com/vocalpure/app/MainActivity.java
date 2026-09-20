@@ -337,6 +337,26 @@ public class MainActivity extends Activity {
         }
 
         /**
+         * Opens the update/download page in the system browser so users can
+         * install new releases. Called by the in-app update checker.
+         */
+        @JavascriptInterface
+        public void openUpdatePage(final String url) {
+            try {
+                String u = (url == null || url.trim().isEmpty())
+                        ? "https://github.com/y5747m-gif/moslem_day"
+                        : url.trim();
+                if (!u.startsWith("http://") && !u.startsWith("https://")) {
+                    u = "https://" + u;
+                }
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(u));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+            } catch (Exception ignored) {
+            }
+        }
+
+        /**
          * Scans the phone for all music files using MediaStore and public music folders.
          * Returns a JSON array of audio tracks with title, artist, duration, path, size.
          */

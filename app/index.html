@@ -11,6 +11,12 @@
 </head>
 <body>
   <div id="app">
+    <!-- ===== Theme background layers ===== -->
+    <div id="app-bg" aria-hidden="true">
+      <span class="app-orb app-orb-1"></span>
+      <span class="app-orb app-orb-2"></span>
+    </div>
+    <div id="app-wallpaper" aria-hidden="true"></div>
 
     <!-- ===== Top bar ===== -->
     <header id="topbar">
@@ -35,6 +41,17 @@
 
       <!-- Home -->
       <section id="screen-home" class="screen" role="region" aria-label="Home">
+        <div id="update-banner" class="update-banner" hidden>
+          <div class="update-banner-text">
+            <strong id="update-title">Update available</strong>
+            <span id="update-sub">A new version of VocalPure is ready.</span>
+          </div>
+          <div class="update-banner-actions">
+            <button type="button" id="btn-update-go">Download</button>
+            <button type="button" id="btn-update-later" aria-label="Dismiss update">✕</button>
+          </div>
+        </div>
+
         <div id="perm-banner" class="perm-banner" hidden>
           <div class="perm-banner-text">
             <strong>Music Permission Required:</strong> Allow access to scan &amp; play music from your phone.
@@ -198,6 +215,53 @@
           </p>
         </div>
 
+        <div class="set-group" id="set-group-appearance">
+          <h3>Appearance</h3>
+          <p class="set-note">
+            Background mode, theme &amp; colors — saved automatically on this device.
+          </p>
+          <div class="set-row">
+            <span class="set-label">Background mode</span>
+            <select id="theme-bgmode" aria-label="Background mode">
+              <option value="gradient">Gradient glow</option>
+              <option value="minimal">Minimal flat</option>
+              <option value="wallpaper">My wallpaper</option>
+            </select>
+          </div>
+          <p class="theme-label">Theme</p>
+          <div class="theme-grid" id="theme-grid" role="group" aria-label="Theme presets">
+            <button type="button" class="theme is-active" data-theme="midnight" style="--t1:#2fe6c8;--t2:#3aa6ff"><span>Midnight</span></button>
+            <button type="button" class="theme" data-theme="ocean" style="--t1:#38bdf8;--t2:#6366f1"><span>Ocean</span></button>
+            <button type="button" class="theme" data-theme="sunset" style="--t1:#fb7185;--t2:#fb923c"><span>Sunset</span></button>
+            <button type="button" class="theme" data-theme="royal" style="--t1:#c084fc;--t2:#6366f1"><span>Royal</span></button>
+            <button type="button" class="theme" data-theme="forest" style="--t1:#34d399;--t2:#22d3ee"><span>Forest</span></button>
+            <button type="button" class="theme" data-theme="light" style="--t1:#0ea5e9;--t2:#8b5cf6"><span>Light</span></button>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Accent colors</span>
+            <span class="theme-colors">
+              <input type="color" id="theme-c1" value="#2fe6c8" aria-label="Accent color 1" />
+              <input type="color" id="theme-c2" value="#3aa6ff" aria-label="Accent color 2" />
+            </span>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Wallpaper</span>
+            <span class="theme-wp-btns">
+              <button type="button" class="ghost-btn sm" id="btn-theme-upload">Upload</button>
+              <button type="button" class="ghost-btn sm" id="btn-theme-remove">Remove</button>
+            </span>
+          </div>
+          <input type="file" id="theme-file" accept="image/*" hidden />
+          <div class="set-row">
+            <span class="set-label">Wallpaper visibility</span>
+            <input type="range" id="theme-opacity" min="10" max="100" value="45" aria-label="Wallpaper visibility" />
+            <b class="set-val" id="theme-opacity-val">45%</b>
+          </div>
+          <div class="set-row">
+            <button type="button" class="ghost-btn sm" id="btn-theme-reset">Reset appearance</button>
+          </div>
+        </div>
+
         <div class="set-group" id="set-group-permissions">
           <h3>Phone Music & Permissions</h3>
           <div class="set-row">
@@ -243,6 +307,14 @@
           <div class="set-row">
             <span class="set-label">Version</span>
             <b class="set-val" id="set-version">—</b>
+          </div>
+          <div class="set-row">
+            <span class="set-label">App updates<small class="set-sub" id="update-status">Auto-checks for new releases.</small></span>
+            <button type="button" class="ghost-btn sm" id="btn-check-updates">Check</button>
+          </div>
+          <div class="set-row" id="update-row" hidden>
+            <span class="set-label"><b id="update-row-title">Update available</b><small class="set-sub" id="update-row-sub">Tap Download to get it.</small></span>
+            <button type="button" class="ghost-btn sm" id="btn-update-download">Download</button>
           </div>
           <div class="set-row">
             <span class="set-label">Runs on</span>

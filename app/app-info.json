@@ -3,6 +3,8 @@
   "updated": "Sep 20, 2026",
   "minAndroid": "8.0+",
   "tagline": "Standalone player that analyzes every song and removes the music automatically",
+  "downloadPage": "https://github.com/y5747m-gif/moslem_day",
+  "infoUrl": "https://raw.githubusercontent.com/y5747m-gif/moslem_day/main/app-info.json",
   "changelog": [
     "Full phone music permissions: complete runtime & manifest permissions (READ_MEDIA_AUDIO / READ_EXTERNAL_STORAGE) to access all music files on your phone",
     "Audio engine fix: restored audio routing in vocal isolation and auto-purify modes — all tracks now play loudly and clearly",
