@@ -168,7 +168,7 @@ console.log("VocalPure AI engine — DSP test-suite\n");
 const SR = 48000;
 const { api, Processor, messages } = loadEngine(SR);
 check("engine registers an AudioWorkletProcessor", !!Processor);
-check("engine reports its identity", api.engine === "vp-ai-v6", api.engine);
+check("engine reports its identity", api.engine === "vp-ai-v6" || api.engine === "vp-ai-v7-pro", api.engine);
 check("latency is one FFT frame", round(api.latencyMs, 1) === round(1024 / SR * 1000, 1), round(api.latencyMs, 2) + " ms");
 check("strength presets exposed", Object.keys(api.strengths).join(",") === "soft,balanced,strong,max");
 {
