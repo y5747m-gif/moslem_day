@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">VocalPure</string>
+    <string name="notif_channel_nav">التنقل بين الأغاني</string>
+    <string name="notif_nav_hint">اضغط للتنقل بين الأغاني — دون فتح التطبيق</string>
+    <string name="notif_channel_desc">بدّل الأغنية من شريط الإشعارات بدون فتح VocalPure</string>
     <color name="vp_background">#FF070B12</color>
 </resources>

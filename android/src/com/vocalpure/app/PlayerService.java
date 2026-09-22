@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.drawable.Icon;
+import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
@@ -26,12 +27,14 @@ import android.os.IBinder;
  * {@link MainActivity#runJs(String)}.
  *
  * Notification contents:
- *   · track title + subtitle (artist)
+ *   · a top-bar message the listener can use to change songs WITHOUT
+ *     opening the app (the body tap skips forward; Previous / Next do
+ *     the same). There is deliberately no activity content intent.
+ *   · track title + artist as the secondary line
  *   · large icon: the cover art embedded in the file (sent as base64),
  *     falling back to the app icon
  *   · Previous / Play-Pause / Next transport actions
- *   · an "Output" action that cycles the audio output (loudspeaker,
- *     phone earpiece, Bluetooth, wired headset)
+ *   · an "Output" action that cycles the audio output
  *   · position readout through MediaSession (MediaStyle)
  */
 public class PlayerService extends Service {
@@ -41,7 +44,9 @@ public class PlayerService extends Service {
     public static final String ACTION_CMD = "com.vocalpure.app.CMD";
     public static final String ACTION_STOP = "com.vocalpure.app.STOP";
 
-    private static final String CHANNEL_ID = "vp_media";
+    /* New id so an existing low-importance "vp_media" channel cannot pin
+       this notification out of the top of the shade. */
+    private static final String CHANNEL_ID = "vp_media_nav";
     private static final int NOTIFICATION_ID = 4101;
 
     private MediaSession session;
@@ -52,6 +57,10 @@ public class PlayerService extends Service {
     private long positionMs = 0;
     private long durationMs = 0;
     private float rate = 1.0f;
+    /* True for the next build after the track title changes, so the
+       heads-up appears once per song — not on every position tick. */
+    private boolean alertNext = false;
+    private Notification lastNotification = null;
 
     /* In-process handle: while the service is alive, the activity pushes
        state updates directly (no startService — that is forbidden for
@@ -123,7 +132,9 @@ public class PlayerService extends Service {
     /** Applies META / STATE extras to the shown notification. */
     private void applyState(Intent intent) {
         if (intent == null) return;
-        title = str(intent, "title", title);
+        String nextTitle = str(intent, "title", title);
+        if (nextTitle != null && !nextTitle.equals(title)) alertNext = true;
+        title = nextTitle;
         subtitle = str(intent, "subtitle", subtitle);
         String b64 = intent.getStringExtra("art");
         if (b64 != null) {
@@ -143,22 +154,34 @@ public class PlayerService extends Service {
         if (nm == null) return;
         NotificationChannel ch = nm.getNotificationChannel(CHANNEL_ID);
         if (ch == null) {
-            ch = new NotificationChannel(CHANNEL_ID, "Playback", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("VocalPure playback controls — stays pinned while a song plays");
+            ch = new NotificationChannel(CHANNEL_ID,
+                    getString(R.string.notif_channel_nav), NotificationManager.IMPORTANCE_HIGH);
+            ch.setDescription(getString(R.string.notif_channel_desc));
             ch.setShowBadge(false);
+            ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             nm.createNotificationChannel(ch);
         }
     }
 
     private Notification buildNotification() {
+        boolean alert = alertNext;
+        alertNext = false;
+        String hint = getString(R.string.notif_nav_hint);
+        /* Body tap changes the song. It must NOT launch MainActivity —
+           the listener stays in the notification shade. */
         Notification.Builder b = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_media_notify)
                 .setContentTitle(title)
-                .setContentText(subtitle)
+                .setContentText(hint)
+                .setSubText(subtitle == null || subtitle.isEmpty() ? "VocalPure" : subtitle)
+                .setTicker(hint)
                 .setOngoing(true)
-                .setOnlyAlertOnce(true)
-                .setShowWhen(true)
-                .setContentIntent(openIntent())
+                .setOnlyAlertOnce(!alert)
+                .setShowWhen(false)
+                .setCategory(Notification.CATEGORY_TRANSPORT)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .setPriority(Notification.PRIORITY_HIGH)
+                .setContentIntent(cmdIntent("next"))
                 .setStyle(new Notification.MediaStyle()
                         .setMediaSession(session.getSessionToken())
                         .setShowActionsInCompactView(0, 1, 2))
@@ -197,13 +220,6 @@ public class PlayerService extends Service {
         return PendingIntent.getService(this, cmd.hashCode() & 0x7fffffff, i, flags);
     }
 
-    private PendingIntent openIntent() {
-        Intent i = new Intent(this, MainActivity.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
-        return PendingIntent.getActivity(this, 0, i, flags);
-    }
-
     private Bitmap appIcon() {
         try {
             return BitmapFactory.decodeResource(getResources(), R.mipmap.ic_launcher);
@@ -213,9 +229,10 @@ public class PlayerService extends Service {
     }
 
     private void updateNotification() {
+        lastNotification = buildNotification();
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) {
-            try { nm.notify(NOTIFICATION_ID, buildNotification()); } catch (Throwable ignored) { }
+            try { nm.notify(NOTIFICATION_ID, lastNotification); } catch (Throwable ignored) { }
         }
         try {
             int state = playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED;
@@ -230,6 +247,14 @@ public class PlayerService extends Service {
                     .setState(state, positionMs, rate);
             if (durationMs > 0) ps.setBufferedPosition(durationMs);
             session.setPlaybackState(ps.build());
+            MediaMetadata.Builder md = new MediaMetadata.Builder()
+                    .putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                    .putString(MediaMetadata.METADATA_KEY_ARTIST, subtitle)
+                    .putString(MediaMetadata.METADATA_KEY_DISPLAY_DESCRIPTION,
+                            getString(R.string.notif_nav_hint));
+            if (durationMs > 0) md.putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs);
+            if (art != null) md.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art);
+            session.setMetadata(md.build());
         } catch (Throwable ignored) { }
     }
 
@@ -255,15 +280,16 @@ public class PlayerService extends Service {
     }
 
     private void startForegroundSafely() {
+        Notification n = lastNotification != null ? lastNotification : buildNotification();
         try {
             if (Build.VERSION.SDK_INT >= 29) {
-                startForeground(NOTIFICATION_ID, buildNotification(),
+                startForeground(NOTIFICATION_ID, n,
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
             } else {
-                startForeground(NOTIFICATION_ID, buildNotification());
+                startForeground(NOTIFICATION_ID, n);
             }
         } catch (Throwable t) {
-            try { startForeground(NOTIFICATION_ID, buildNotification()); } catch (Throwable ignored) { }
+            try { startForeground(NOTIFICATION_ID, n); } catch (Throwable ignored) { }
         }
     }
 

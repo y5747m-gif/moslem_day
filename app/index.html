@@ -36,10 +36,16 @@
       </div>
     </header>
 
-    <!-- ===== Pinned app notice ===== -->
-    <aside class="app-notice" role="status" aria-label="VocalPure notice">
+    <!-- ===== Top song navigator (does not open the player) ===== -->
+    <aside class="app-notice" id="app-notice" role="region" aria-label="Song navigation">
+      <button type="button" class="notice-nav" id="notice-prev" aria-label="Previous song">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M6 5h2.2v14H6zM19 5v14L9.2 12z"/></svg>
+      </button>
       <span class="app-notice-dot" aria-hidden="true"></span>
-      <span><b>VocalPure مثبت</b> — جودة صوت فائقة حتى 4K وإزالة الموسيقى بدقة عالية</span>
+      <span id="notice-text"><b>VocalPure</b> — استخدم الأزرار للتنقل بين الأغاني دون فتح المشغّل</span>
+      <button type="button" class="notice-nav" id="notice-next" aria-label="Next song">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M15.8 5H18v14h-2.2zM5 5v14l9.8-7z"/></svg>
+      </button>
     </aside>
 
     <!-- ===== Screens ===== -->
@@ -241,11 +247,10 @@
             <button type="button" class="switch is-on" id="set-ai-denoise" role="switch" aria-checked="true" aria-label="Silence music-only parts"><i></i></button>
           </div>
           <p class="set-note">
-            The engine runs on the phone, offline, while the song streams: it learns the voice of
-            the track you are playing (adaptive spectral profile), and uses the centre channel, the
-            detected pitch and the syllabic rhythm of speech as evidence, then attenuates everything
-            else. Songs are also probed the moment they are imported (a few seconds of audio — never
-            a full decode) so the very first notes are already clean.
+            The engine runs on the phone, offline. Every normal song is purified
+            <b>before</b> it plays — a real loading screen tracks the removal, and playback
+            starts only on the purified voice. Files longer than 12 minutes still stream
+            through the same engine live, never unfiltered.
           </p>
         </div>
 
@@ -554,6 +559,19 @@
     <input type="file" id="file-input" accept="audio/*" multiple hidden />
 
     <div class="toast-wrap" id="toast-wrap" aria-live="polite"></div>
+
+    <!-- Real loading screen: visible while the library boots, and while music
+         is actually being removed. Progress is driven by the render, not a timer. -->
+    <div id="load-screen" class="load-screen" role="dialog" aria-modal="true" aria-label="Loading">
+      <div class="load-card">
+        <div class="load-orb" aria-hidden="true"><span>AI</span><i></i></div>
+        <h2 id="load-title">VocalPure</h2>
+        <p id="load-sub">Loading your library…</p>
+        <div class="load-track" aria-hidden="true"><i id="load-fill"></i></div>
+        <b id="load-pct">0%</b>
+        <button type="button" class="ghost-btn sm" id="load-cancel" hidden>Cancel</button>
+      </div>
+    </div>
   </div>
 
   <script src="vp-ai-engine.js"></script>

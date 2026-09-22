@@ -6,13 +6,18 @@
    selector, no stem mixer and no "music" level anywhere — the
    listener always hears the voice, never the music.
 
-   Engine v6.2 — LIVE streaming by default (the path the engine was
-   built for and the one every real music player uses):
-     · the <audio> element streams the original file straight into
-       an AudioWorklet (vp-ai-voice) which removes the music in real
-       time. No whole-file decode, no OfflineAudioContext, no memory
-       thrash — the listener hears the voice from the very first
-       millisecond and switching songs is instant.
+   Engine v6.3 — music is removed BEFORE playback:
+     · every song at or under 12 minutes is decoded once and run
+       through the same AI voice engine (vp-ai-voice) before a single
+       sample is heard. A real loading screen tracks that work
+       (read → decode → removal progress). Only the purified render
+       is then played.
+     · files longer than 12 minutes still stream live through the
+       worklet — still processed, never unfiltered — so a lecture
+       cannot exhaust the phone's memory.
+     · if the offline worklet returns too fast to have actually run
+       (a stub), the same processor is executed on the decoded PCM
+       so the music is removed for real, not merely claimed.
      · the engine is started when the audio context unlocks (first
        user gesture) so the worklet is warm by the time the first
        song starts; the worklet's 1024-sample FIFO is pre-filled so
@@ -20,9 +25,9 @@
      · a seamless atomic graph swap disconnects / reconnects the
        media source atomically when the URL changes, eliminating the
        audible click/drop that the v6.1 graph produced.
-     · the WAV export keeps its capture-as-it-plays path: the AI
-       worklet streams 16-bit PCM to the main thread, which the
-       native bridge writes straight to disk.
+     · a song that was purified before playback exports that WAV
+       directly. Only files too long to pre-render still record the
+       live engine output while they play.
      · a pinned mini player stays docked above the tab bar on every
        screen — cover, title, play/pause and next/previous one tap away.
    ============================================================ */
@@ -644,21 +649,22 @@
   }
 
 /* ============================================================
-     Audio engine — single LIVE AI streaming path
+     Audio engine — music removed BEFORE playback
 
-       The original file is streamed straight into the AI voice
-       engine (an AudioWorklet) at all times:
-           MediaElementSource(original file)
-             → AI voice engine (vp-ai-voice, always on)
-             → voice boost → compressor → 5-band EQ
-             → master → analyser → output
+       Normal songs:
+         file → decode → AI engine (offline worklet, or the same
+         processor on the PCM if that render did not really run)
+         → purified WAV → <audio> → voice boost → compressor
+         → 5-band EQ → master → speakers
 
-       The file is therefore NEVER wired straight to the speakers.
+       Over 12 minutes (PP_MAX_SECONDS):
+         <audio> stream → AI worklet → voice boost → … → speakers
+
        wireGraph() is the single place that connects the media
-       source, and it only does so once the worklet is alive; while
-       the engine loads — or if it cannot start on a device — the
-       original song stays silent instead of playing unfiltered.
-       There is no filter fallback and no unity-mask bypass.
+       source. "pre" plays an already-purified render. "live" routes
+       the original only through the AI node. There is no filter
+       fallback and no unity-mask bypass — unfiltered music never
+       reaches the speakers.
      ============================================================ */
   var AC = window.AudioContext || window.webkitAudioContext;
   var actx = null, master = null, analyser = null, comp = null, eqIn = null, voiceGain = null;
@@ -677,8 +683,17 @@
   var exportState = null;             /* set by the WAV export section */
 
   /* ---- playback state ---- */
-  var playMode = "none";              /* "none" | "live"                       */
+  var PP_MAX_SECONDS = 720;           /* 12 min — pre-render memory cap        */
+  function exceedsPreRenderCap(duration) {
+    return duration > PP_MAX_SECONDS;
+  }
+  var playMode = "none";              /* "none" | "pre" | "live"               */
   var pendingAutoplay = false;        /* start automatically after the graph is up */
+  var renderGen = 0;                  /* bumps to cancel an in-flight removal  */
+  var renderProgress = null;          /* 0..1 while music is being removed     */
+  var loadScreenReason = "boot";
+  var currentPurified = null;         /* { songId, wav } of the playing render */
+  var renderCache = [];               /* last purified WAVs, keyed by settings */
 
   var ICON_PLAY = "M7.5 4.8v14.4L20 12z";
   var ICON_PAUSE = "M6.5 4h3.6v16H6.5zM13.9 4h3.6v16h-3.6z";
@@ -733,11 +748,10 @@
       toast("This track could not be played — try another file.", "error");
     });
     try { mediaSrc = actx.createMediaElementSource(audioEl); } catch (e) { mediaSrc = null; }
-    /* Fail-closed by design: the source is left UNCONNECTED here, so the song
-       is silent until the live AI engine is actually processing it.
-       wireGraph() is the ONLY place that connects the media source, and it
-       routes the original through the AI node — unfiltered music must never
-       be audible, not even for a moment. */
+    /* Fail-closed by design: the source is left UNCONNECTED here.
+       wireGraph() is the ONLY place that connects it. "pre" plays an
+       already-purified render. "live" routes the original only through
+       the AI node. Unfiltered music must never be audible. */
     return audioEl;
   }
 
@@ -1079,12 +1093,6 @@
     } catch (e) { /* ignore */ }
   }
 
-  /* ============================================================
-     The single place that decides what the media element feeds.
-     Old v6.1 had both a "pre" branch (purified WAV) and a "live"
-     branch (live worklet); v6.2 drops the pre branch entirely
-     — the AI worklet is the ONLY path the original audio takes.
-     ============================================================ */
   function errWith(msg, code) {
     var e = new Error(msg);
     e.code = code || "";
@@ -1098,17 +1106,422 @@
        unfiltered path connected next to the engine. */
     try { mediaSrc.disconnect(); } catch (e) { /* ignore */ }
     try { if (aiNode) aiNode.disconnect(); } catch (e) { /* ignore */ }
-    if (mode === "live" && aiNode) {
+    if (mode === "pre") {
+      /* the element only ever holds an already-purified render here */
+      try { mediaSrc.connect(voiceGain); } catch (e) { /* ignore */ }
+    } else if (mode === "live" && aiNode) {
       try { mediaSrc.connect(aiNode); aiNode.connect(voiceGain); } catch (e) { /* ignore */ }
     }
     /* mode "none": source stays disconnected — fail-closed silence. */
   }
 
-  /* The worklet stays alive across songs and across the lifetime of the
-     AudioContext, so a settings change does NOT need a re-render — the
-     params message updates the mask in place. No work, no audio drop. */
+  /* A separation-setting change re-renders a pre-processed song.
+     The current render keeps playing until the new one is ready, so
+     the listener never hears the original while we work. Live songs
+     only need a params message — the worklet is already in the path. */
   function reprocessCurrent() {
-    /* no-op in live mode; kept as a stub for API stability */
+    if (playMode !== "pre" || !currentId || !loaded) return;
+    var song = currentSong();
+    if (!song) return;
+    var my = loadToken;
+    var token = ++renderGen;
+    var pos = currentPos();
+    var wasPlaying = playing;
+    showLoadScreen("render", "Removing music", "Re-rendering “" + song.title + "”…", true);
+    purifySong(song, token).then(function (entry) {
+      if (!entry || my !== loadToken || token !== renderGen) return;
+      beginPre(song, entry, my, { resumePos: pos, autoplay: wasPlaying, keepClosed: true });
+    }).catch(function () {
+      if (token === renderGen) hideLoadScreen("render");
+    });
+  }
+
+  /* ============================================================
+     Real loading screen — the bar moves only when removal work
+     actually advances (bytes read, decode, processor hops).
+     ============================================================ */
+  function showLoadScreen(reason, title, sub, cancellable) {
+    loadScreenReason = reason || "render";
+    var el = $("load-screen");
+    if (!el) return;
+    el.hidden = false;
+    el.classList.add("is-indet");
+    var h = $("load-title");
+    if (h) h.textContent = title || "VocalPure";
+    var s = $("load-sub");
+    if (s) s.textContent = sub || "";
+    var cancel = $("load-cancel");
+    if (cancel) cancel.hidden = !cancellable;
+    var mp = $("miniplayer");
+    if (mp) mp.classList.add("is-processing");
+    syncNotice();
+  }
+  function setLoadProgress(frac, label) {
+    frac = Math.max(0, Math.min(1, Number(frac) || 0));
+    renderProgress = frac;
+    var el = $("load-screen");
+    if (el) el.classList.remove("is-indet");
+    var fill = $("load-fill");
+    if (fill) fill.style.width = (frac * 100).toFixed(1) + "%";
+    var pct = $("load-pct");
+    if (pct) pct.textContent = Math.round(frac * 100) + "%";
+    if (label && $("load-sub")) $("load-sub").textContent = label;
+    syncMiniPlayer();
+    syncNotice();
+  }
+  function hideLoadScreen(reason) {
+    if (reason && loadScreenReason && loadScreenReason !== reason) return;
+    var el = $("load-screen");
+    if (el) { el.hidden = true; el.classList.remove("is-indet"); }
+    loadScreenReason = "";
+    renderProgress = null;
+    var cancel = $("load-cancel");
+    if (cancel) cancel.hidden = true;
+    var mp = $("miniplayer");
+    if (mp) mp.classList.remove("is-processing");
+    syncMiniPlayer();
+    syncNotice();
+  }
+  function cancelRender() {
+    renderGen++;
+    pendingAutoplay = false;
+    hideLoadScreen("render");
+    toast("Removal cancelled — the original music was not played.");
+  }
+  function syncNotice() {
+    var el = $("notice-text");
+    if (!el) return;
+    var s = currentSong();
+    if (renderProgress !== null && s) {
+      el.innerHTML = "<b>" + escapeHtml(s.title) + "</b> — إزالة الموسيقى " +
+        Math.round(renderProgress * 100) + "%";
+      return;
+    }
+    if (!s) {
+      el.innerHTML = "<b>VocalPure</b> — استخدم الأزرار للتنقل بين الأغاني دون فتح المشغّل";
+      return;
+    }
+    el.innerHTML = "<b>" + escapeHtml(s.title) + "</b> — السابق / التالي من هنا دون فتح المشغّل";
+  }
+
+  function engineCanSeparate() {
+    var api = window.VPAIEngine;
+    if (!api || typeof api.factory !== "function") return false;
+    if (engineKind === "error") return false;
+    if (!window.AudioWorkletNode || !window.Blob || !window.URL) return false;
+    if (!actx || !actx.audioWorklet) return false;
+    return true;
+  }
+
+  function cacheKeyFor(song) {
+    return (song ? song.id : "") + "|" + aiStrength + "|" + (aiDenoise ? "1" : "0");
+  }
+  function takeCache(key) {
+    for (var i = 0; i < renderCache.length; i++) {
+      if (renderCache[i].key === key) return renderCache[i];
+    }
+    return null;
+  }
+  function rememberCache(entry) {
+    renderCache = renderCache.filter(function (e) { return e.key !== entry.key; });
+    renderCache.push(entry);
+    if (renderCache.length > 3) renderCache.shift();
+  }
+
+  function blobToArrayBuffer(blob) {
+    if (!blob) return Promise.resolve(null);
+    if (typeof blob.arrayBuffer === "function") {
+      try {
+        var p = blob.arrayBuffer();
+        if (p && typeof p.then === "function") return p;
+      } catch (e) { /* FileReader fallback */ }
+    }
+    return new Promise(function (resolve) {
+      try {
+        var fr = new FileReader();
+        fr.onload = function () { resolve(fr.result || null); };
+        fr.onerror = function () { resolve(null); };
+        fr.readAsArrayBuffer(blob);
+      } catch (e2) { resolve(null); }
+    });
+  }
+  function readSongBytes(song) {
+    if (song.blob) return blobToArrayBuffer(song.blob);
+    if (song.path && window.fetch) {
+      return fetch(deviceAudioUrl(song.path), { cache: "no-store" }).then(function (res) {
+        if (!res || (res.ok !== true && res.status !== 206 && res.status !== 200)) return null;
+        return res.arrayBuffer();
+      }).catch(function () { return null; });
+    }
+    return idbGetFile(song.id).then(function (b) {
+      if (!b) return null;
+      song.blob = b;
+      return blobToArrayBuffer(b);
+    });
+  }
+  function decodeAll(ab) {
+    return new Promise(function (resolve, reject) {
+      if (!ensureCtx() || !ab) { reject(errWith("could not decode", "decode")); return; }
+      var copy = ab;
+      try { if (ab.slice) copy = ab.slice(0); } catch (e) { copy = ab; }
+      var done = false;
+      function ok(b) { if (!done) { done = true; resolve(b); } }
+      function fail() { if (!done) { done = true; reject(errWith("could not decode", "decode")); } }
+      try {
+        var pr = actx.decodeAudioData(copy, ok, fail);
+        if (pr && typeof pr.then === "function") pr.then(ok, fail);
+      } catch (e2) { fail(); }
+    });
+  }
+
+  /* The same voice processor the worklet runs, constructed on the main
+     thread so removal does not depend on a stub OfflineAudioContext. */
+  function makeEngineProcessor(sampleRate, sink) {
+    var api = window.VPAIEngine;
+    if (!api || typeof api.factory !== "function") throw new Error("AI engine missing");
+    var prevAWP = window.AudioWorkletProcessor;
+    var prevReg = window.registerProcessor;
+    var prevSR = window.sampleRate;
+    var prevCT = window.currentTime;
+    window.sampleRate = sampleRate;
+    window.currentTime = 0;
+    window.AudioWorkletProcessor = class AudioWorkletProcessor {
+      constructor() {
+        this.port = {
+          onmessage: null,
+          postMessage: function (msg) {
+            if (sink) sink(msg);
+          }
+        };
+      }
+    };
+    window.registerProcessor = function () {};
+    var built = null;
+    try { built = api.factory(); }
+    finally {
+      if (prevAWP === undefined) { try { delete window.AudioWorkletProcessor; } catch (e) { window.AudioWorkletProcessor = undefined; } }
+      else window.AudioWorkletProcessor = prevAWP;
+      if (prevReg === undefined) { try { delete window.registerProcessor; } catch (e) { window.registerProcessor = undefined; } }
+      else window.registerProcessor = prevReg;
+      if (prevSR === undefined) { try { delete window.sampleRate; } catch (e) { window.sampleRate = undefined; } }
+      else window.sampleRate = prevSR;
+      if (prevCT === undefined) { try { delete window.currentTime; } catch (e) { window.currentTime = undefined; } }
+      else window.currentTime = prevCT;
+    }
+    var Processor = built && built.processor;
+    if (!Processor) throw new Error("AI processor unavailable");
+    var proc = new Processor();
+    try {
+      proc.port.onmessage({ data: { t: "params", strength: aiStrength, gateOn: !!aiDenoise, capture: false } });
+    } catch (e) { /* constructor defaults still separate */ }
+    return proc;
+  }
+
+  function runProcessorRange(proc, L, R, n, outL, outR, from, to, delay) {
+    var block = 128;
+    var inL = new Float32Array(block);
+    var inR = new Float32Array(block);
+    var oL = new Float32Array(block);
+    var oR = new Float32Array(block);
+    var pos = from;
+    while (pos < to) {
+      inL.fill(0); inR.fill(0);
+      var len = Math.min(block, to - pos);
+      for (var i = 0; i < len; i++) {
+        var s = pos + i;
+        if (s < n) { inL[i] = L[s] || 0; inR[i] = R[s] || 0; }
+      }
+      proc.process([[inL, inR]], [[oL, oR]]);
+      for (var j = 0; j < len; j++) {
+        var outAt = pos + j - delay;
+        if (outAt >= 0 && outAt < n) { outL[outAt] = oL[j]; outR[outAt] = oR[j]; }
+      }
+      pos += len;
+    }
+    return pos;
+  }
+
+  function processBufferSync(buffer) {
+    var sr = buffer.sampleRate || 48000;
+    var stats = { cut: 0, voice: 0, n: 0, f0: 0 };
+    var proc = makeEngineProcessor(sr, function (msg) {
+      if (!msg || msg.t !== "stats") return;
+      stats.cut += msg.cutDb || 0; stats.voice += msg.voice || 0; stats.n++;
+      if (msg.f0) stats.f0 = msg.f0;
+    });
+    var n = buffer.length || 0;
+    var L = buffer.getChannelData(0);
+    var R = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : L;
+    var outL = new Float32Array(n);
+    var outR = new Float32Array(n);
+    runProcessorRange(proc, L, R, n, outL, outR, 0, n + 1024, 1024);
+    return { sampleRate: sr, length: n, numberOfChannels: 2, duration: n / sr,
+      getChannelData: function (ch) { return ch === 0 ? outL : outR; }, stats: stats };
+  }
+
+  function processBufferAsync(buffer, token) {
+    return new Promise(function (resolve, reject) {
+      var sr = buffer.sampleRate || 48000;
+      var stats = { cut: 0, voice: 0, n: 0, f0: 0 };
+      var proc;
+      try {
+        proc = makeEngineProcessor(sr, function (msg) {
+          if (!msg || msg.t !== "stats") return;
+          stats.cut += msg.cutDb || 0; stats.voice += msg.voice || 0; stats.n++;
+          if (msg.f0) stats.f0 = msg.f0;
+        });
+      } catch (e) { reject(e); return; }
+      var n = buffer.length || 0;
+      var L = buffer.getChannelData(0);
+      var R = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : L;
+      var outL = new Float32Array(n);
+      var outR = new Float32Array(n);
+      var delay = 1024;
+      var total = n + delay;
+      var pos = 0;
+      var chunk = Math.max(Math.floor(sr / 4), 4096);
+      function step() {
+        if (token !== renderGen) { reject(errWith("cancelled", "cancel")); return; }
+        var end = Math.min(total, pos + chunk);
+        pos = runProcessorRange(proc, L, R, n, outL, outR, pos, end, delay);
+        setLoadProgress(0.16 + (total ? pos / total : 1) * 0.78,
+          "Removing music… " + Math.round((total ? pos / total : 1) * 100) + "%");
+        if (pos >= total) {
+          resolve({ sampleRate: sr, length: n, numberOfChannels: 2, duration: n / sr,
+            getChannelData: function (ch) { return ch === 0 ? outL : outR; }, stats: stats });
+          return;
+        }
+        setTimeout(step, 0);
+      }
+      setTimeout(step, 0);
+    });
+  }
+
+  /* Offline worklet render. A buffer that comes back faster than the
+     engine can run is a stub — the caller then removes the music with
+     the real processor instead of playing that stub. */
+  function offlineRender(buffer) {
+    return new Promise(function (resolve) {
+      var OAC = window.OfflineAudioContext;
+      var api = window.VPAIEngine;
+      if (!OAC || !window.AudioWorkletNode || !api || typeof api.factory !== "function") {
+        resolve(null); return;
+      }
+      var off;
+      try { off = new OAC(2, buffer.length, buffer.sampleRate || 48000); }
+      catch (e) { resolve(null); return; }
+      if (!off.audioWorklet || !window.Blob || !window.URL) { resolve(null); return; }
+      var modUrl = null;
+      try {
+        var source = "(" + api.factory.toString() + ")();";
+        modUrl = URL.createObjectURL(new Blob([source], { type: "application/javascript" }));
+      } catch (e2) { resolve(null); return; }
+      var t0 = Date.now();
+      off.audioWorklet.addModule(modUrl).then(function () {
+        try { URL.revokeObjectURL(modUrl); } catch (e) { /* ignore */ }
+        var node = new AudioWorkletNode(off, "vp-ai-voice", {
+          numberOfInputs: 1, numberOfOutputs: 1,
+          outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit"
+        });
+        try {
+          node.port.postMessage({ t: "params", strength: aiStrength, gateOn: !!aiDenoise, capture: false });
+        } catch (e) { /* ignore */ }
+        var src = off.createBufferSource();
+        src.buffer = buffer;
+        src.connect(node);
+        node.connect(off.destination);
+        try { src.start(0); } catch (e) { /* ignore */ }
+        return off.startRendering();
+      }).then(function (rendered) {
+        resolve({ rendered: rendered, elapsed: Date.now() - t0 });
+      }).catch(function () { resolve(null); });
+    });
+  }
+
+  function renderLooksReal(info, buffer) {
+    if (!info || !info.rendered || !info.rendered.length) return false;
+    var dur = buffer.duration || 0;
+    /* The shipping engine is several times slower than realtime. A
+       half-second-or-longer buffer that "finishes" in a few milliseconds
+       did not run the separator. */
+    if (dur >= 0.5 && info.elapsed < 8) return false;
+    return true;
+  }
+
+  function pcmToWavBytes(rendered) {
+    var n = rendered.length || 0;
+    var sr = rendered.sampleRate || 48000;
+    var L = rendered.getChannelData(0);
+    var R = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : L;
+    var dataBytes = n * 4;
+    var buf = new ArrayBuffer(44 + dataBytes);
+    var v = new DataView(buf);
+    var o = 0;
+    function wstr(s) { for (var i = 0; i < s.length; i++) v.setUint8(o++, s.charCodeAt(i)); }
+    function u32(x) { v.setUint32(o, x, true); o += 4; }
+    function u16(x) { v.setUint16(o, x, true); o += 2; }
+    wstr("RIFF"); u32(36 + dataBytes); wstr("WAVE"); wstr("fmt "); u32(16);
+    u16(1); u16(2); u32(sr); u32(sr * 4); u16(4); u16(16); wstr("data"); u32(dataBytes);
+    for (var i = 0; i < n; i++) {
+      var l = L[i] || 0, r = R[i] || 0;
+      l = l < -1 ? -1 : (l > 1 ? 1 : l);
+      r = r < -1 ? -1 : (r > 1 ? 1 : r);
+      v.setInt16(o, l < 0 ? l * 0x8000 : l * 0x7fff, true); o += 2;
+      v.setInt16(o, r < 0 ? r * 0x8000 : r * 0x7fff, true); o += 2;
+    }
+    return new Uint8Array(buf);
+  }
+
+  function noteRenderStats(song, stats) {
+    if (!song || !stats || !stats.n) return;
+    var vAvg = stats.voice / stats.n, cAvg = stats.cut / stats.n;
+    song._profile = {
+      ai: true, live: true, engine: "vp-ai-v6",
+      voice: Math.round(vAvg * 100) / 100,
+      cutDb: Math.round(cAvg * 10) / 10,
+      f0: Math.round(stats.f0 || 0),
+      clarity: liveClarity(cAvg, vAvg),
+      at: Date.now()
+    };
+    idbPut(cleanRec(song));
+  }
+
+  function purifySong(song, token) {
+    var key = cacheKeyFor(song);
+    var hit = takeCache(key);
+    if (hit) return Promise.resolve(hit);
+    setLoadProgress(0.04, "Reading “" + song.title + "”…");
+    return readSongBytes(song).then(function (ab) {
+      if (token !== renderGen) return null;
+      if (!ab) throw errWith("the audio data is missing", "missing");
+      setLoadProgress(0.12, "Decoding “" + song.title + "”…");
+      return decodeAll(ab);
+    }).then(function (buf) {
+      if (!buf || token !== renderGen) return null;
+      if (exceedsPreRenderCap(buf.duration || 0)) throw errWith("too long", "too-long");
+      setLoadProgress(0.16, "Removing music from “" + song.title + "”…");
+      return offlineRender(buf).then(function (info) {
+        if (token !== renderGen) return null;
+        if (renderLooksReal(info, buf)) return info.rendered;
+        /* Short clips stay on this microtask so playback can start as soon
+           as the music is actually gone. Longer files yield so the loading
+           screen can paint real percent. */
+        if ((buf.duration || 0) <= 2.5) return processBufferSync(buf);
+        return processBufferAsync(buf, token);
+      });
+    }).then(function (rendered) {
+      if (!rendered || token !== renderGen) return null;
+      if (!rendered.getChannelData) return null;
+      setLoadProgress(0.96, "Writing the purified voice…");
+      noteRenderStats(song, rendered.stats);
+      var entry = {
+        key: key,
+        wav: pcmToWavBytes(rendered),
+        duration: rendered.duration || song.duration || 0
+      };
+      rememberCache(entry);
+      return entry;
+    });
   }
 
   /* Run fn once the element has parsed the new source's metadata (seek
@@ -1282,6 +1695,8 @@
 
   function unloadCurrent() {
     loadToken++;
+    renderGen++;
+    currentPurified = null;
     pendingAutoplay = false;
     stopPlayback();
     loaded = false;
@@ -1369,34 +1784,30 @@
   }
 
   var loadToken = 0;
-  function loadSongById(id, autoplay, opts) {
-    opts = opts || {};
-    var song = songById(id);
-    if (!song) return;
-    if (!ensureCtx()) { toast("Audio is not supported on this device.", "error"); return; }
-    var my = ++loadToken;
-    currentId = id;
-    resetLive(song);
-    stopPlayback();
-    loaded = false;
-    playMode = "none";
-    wireGraph("none");
-    pendingAutoplay = !!autoplay;
-    if (exportState) stopExport(true);
-    markCurrentRow(); renderQueue(); updateNp();
-    $("np-title").textContent = song.title;
-    $("np-artist").textContent = song.artist + (song.path ? " · phone library" : " · imported");
-    var expSt = $("exp-status");
-    if (expSt) expSt.textContent = "";
-    updateNpArt();
-    pushMediaMeta();
-    updateProgressUI();
-    drawViz();
+  function finishTransport(song, my, opts, pos) {
+    afterMeta(function () {
+      if (my !== loadToken) return;
+      var autoplay = !!(opts && opts.autoplay) || pendingAutoplay;
+      if (autoplay) {
+        startAt(pos);
+        if (!(opts && opts.keepClosed)) openNp();
+      } else if (pos > 0.05) {
+        try { audioEl.currentTime = pos; } catch (e) { /* ignore */ }
+        updateProgressUI();
+      }
+      syncMiniPlayer();
+      syncNotice();
+    });
+    if (song && !song._profile) queueAnalysis([song.id]);
+  }
 
-    /* The only playback path: stream the file through the AI worklet.
-       If the worklet is still loading, this still wires the graph and
-       just waits for the first "ready" message before sound starts;
-       the source stays silent (fail-closed) until the engine is live. */
+  /* Over the cap, or on a device that cannot run the separator: stream
+     the original, but only through the live AI node. If that node is
+     missing the source stays disconnected — never unfiltered. */
+  function beginLive(song, my, opts) {
+    if (my !== loadToken) return;
+    hideLoadScreen("render");
+    currentPurified = null;
     prepareMedia(song).then(function (info) {
       if (my !== loadToken) return;
       stopPlayback();
@@ -1413,19 +1824,8 @@
       updateNp();
       updateProgressUI();
       drawViz();
-      var pos = Math.max(0, Math.min(Number(opts.resumePos) || 0, Math.max(duration - 0.05, 0)));
-      afterMeta(function () {
-        if (my !== loadToken) return;
-        if (pendingAutoplay) {
-          startAt(pos);
-          openNp();
-        } else if (pos > 0.05) {
-          try { audioEl.currentTime = pos; } catch (e) { /* ignore */ }
-          updateProgressUI();
-        }
-        syncMiniPlayer();
-      });
-      if (!song._profile) queueAnalysis([song.id]);
+      var pos = Math.max(0, Math.min(Number(opts && opts.resumePos) || 0, Math.max(duration - 0.05, 0)));
+      finishTransport(song, my, opts, pos);
     }).catch(function (err) {
       if (my !== loadToken) return;
       loaded = false;
@@ -1437,6 +1837,88 @@
       updateNp();
       updateProgressUI();
       toast("Could not play “" + song.title + "”" + (err && err.message ? " — " + err.message : "."), "error");
+    });
+  }
+
+  /* Plays only the purified WAV. The original file is never assigned
+     to the element on this path. */
+  function beginPre(song, entry, my, opts) {
+    if (my !== loadToken || !entry || !entry.wav) return;
+    stopPlayback();
+    playMode = "pre";
+    currentPurified = { songId: song.id, wav: entry.wav, key: entry.key };
+    loaded = true;
+    duration = entry.duration || song.duration || 0;
+    var blob = new Blob([entry.wav], { type: "audio/wav" });
+    setMediaUrl(URL.createObjectURL(blob), false);
+    wireGraph("pre");
+    hideLoadScreen("render");
+    updateEngineLine();
+    updateNp();
+    updateProgressUI();
+    drawViz();
+    var pos = Math.max(0, Math.min(Number(opts && opts.resumePos) || 0, Math.max(duration - 0.05, 0)));
+    finishTransport(song, my, opts, pos);
+  }
+
+  function loadSongById(id, autoplay, opts) {
+    opts = opts || {};
+    if (autoplay) opts.autoplay = true;
+    var song = songById(id);
+    if (!song) return;
+    if (!ensureCtx()) { toast("Audio is not supported on this device.", "error"); return; }
+    var my = ++loadToken;
+    var token = ++renderGen;
+    currentId = id;
+    currentPurified = null;
+    resetLive(song);
+    stopPlayback();
+    loaded = false;
+    playMode = "none";
+    wireGraph("none");
+    pendingAutoplay = !!autoplay;
+    if (exportState) stopExport(true);
+    markCurrentRow(); renderQueue(); updateNp();
+    $("np-title").textContent = song.title;
+    $("np-artist").textContent = song.artist + (song.path ? " · phone library" : " · imported");
+    var expSt = $("exp-status");
+    if (expSt) expSt.textContent = "";
+    updateNpArt();
+    pushMediaMeta();
+    updateProgressUI();
+    drawViz();
+    syncNotice();
+
+    var known = song.duration || 0;
+    /* Known-long files never get decoded. A dead engine also stays on the
+       raw URL, disconnected, so unfiltered music cannot leak. */
+    if (!engineCanSeparate() || exceedsPreRenderCap(known)) {
+      beginLive(song, my, opts);
+      return;
+    }
+    showLoadScreen("render", "Removing music", "Preparing “" + song.title + "”…", true);
+    purifySong(song, token).then(function (entry) {
+      if (my !== loadToken || token !== renderGen) return;
+      if (!entry) {
+        hideLoadScreen("render");
+        return;
+      }
+      beginPre(song, entry, my, opts);
+    }).catch(function (err) {
+      if (my !== loadToken || token !== renderGen) return;
+      if (err && err.code === "too-long") {
+        beginLive(song, my, opts);
+        return;
+      }
+      hideLoadScreen("render");
+      loaded = false;
+      playMode = "none";
+      wireGraph("none");
+      setPlayIcon(false);
+      updateEngineLine();
+      updateNp();
+      toast("Could not remove the music from “" + song.title + "”" +
+        (err && err.message ? " — " + err.message : ".") + " The original was not played.", "error");
     });
   }
 
@@ -1458,16 +1940,20 @@
     updateProgressUI();
   }
 
-  function stepNext() {
+  function stepNext(opts) {
     if (!queue.length) { toast("Nothing in the queue yet."); return; }
     qi = (qi + 1) % queue.length;
-    loadSongById(queue[qi], true);
+    var next = opts || {};
+    next.autoplay = true;
+    loadSongById(queue[qi], true, next);
   }
-  function stepPrev() {
-    if (loaded && currentPos() > 3) { startAt(0); return; }
+  function stepPrev(opts) {
+    if (loaded && currentPos() > 3 && !(opts && opts.force)) { startAt(0); return; }
     if (!queue.length) { toast("Nothing in the queue yet."); return; }
     qi = (qi - 1 + queue.length) % queue.length;
-    loadSongById(queue[qi], true);
+    var next = opts || {};
+    next.autoplay = true;
+    loadSongById(queue[qi], true, next);
   }
 
   /* ============================================================
@@ -1542,6 +2028,9 @@
     if (engineKind === "error") {
       label = "AI engine unavailable";
       text = engineErrorReason + " Playback stays silent so unfiltered music never plays.";
+    } else if (playMode === "pre" && loaded) {
+      label = "AI voice isolation — pre-processed";
+      text = "Music was removed before playback. Only the purified voice is played.";
     } else if (playMode === "live" && loaded) {
       label = "AI voice isolation — live";
       if (p && p.live) {
@@ -1566,6 +2055,8 @@
     if (el) {
       if (engineKind === "error") {
         el.textContent = "⚠️ The AI engine could not start: " + engineErrorReason + " Playback stays silent so unfiltered music never plays.";
+      } else if (playMode === "pre" && loaded) {
+        el.innerHTML = "🎤 Music was <b>removed before playback</b> by the AI engine — only the purified voice is played.";
       } else if (playMode === "live" && loaded && p && p.live) {
         el.innerHTML = "🎤 The AI removes the music <b>live</b> from the stream — voice detected " +
           Math.round((p.voice || 0) * 100) + "% of the time, music attenuated <b>" +
@@ -1992,7 +2483,9 @@
     if (chip) {
       chip.textContent =
         engineKind === "error" ? "⚠️ AI unavailable"
-        : playMode === "live" ? "🎤 pure voice · AI"
+        : playMode === "pre" ? "🎤 pre-processed"
+        : playMode === "live" && engineKind === "ai" ? "🎤 pure voice · AI"
+        : playMode === "live" ? "🎤 live"
         : (s ? "⏳ AI loading…" : "—");
     }
     var fav = $("np-fav");
@@ -2175,10 +2668,41 @@
     if (st && exportState) st.textContent = exportProgressText();
   }
 
+  function exportPurifiedNow(song, wav) {
+    if (!wav || !wav.length) {
+      toast("The purified voice is not ready yet.", "error");
+      return;
+    }
+    var name = exportFileName(song);
+    var writer = nativeWriter(name);
+    if (writer) {
+      var res = writer.write(wav, true);
+      var fin = writer.finish(Math.max(0, wav.length - 44));
+      if ((typeof res === "string" && res.indexOf("error") === 0) ||
+          (typeof fin === "string" && fin.indexOf("error") === 0)) {
+        toast("Could not save the purified voice.", "error");
+        return;
+      }
+      toast("Saved “" + name + "” — music already removed.", "success");
+    } else if (downloadBlob(new Blob([wav], { type: "audio/wav" }), name)) {
+      toast("Export finished — check your downloads.", "success");
+    } else {
+      toast("Export failed.", "error");
+    }
+    var st = $("exp-status");
+    if (st) st.textContent = "saved purified voice";
+  }
+
   function startExport() {
     if (exportState) { stopExport(false); return; }
     var song = currentSong();
     if (!song) { toast("Play a song first, then save its purified voice."); return; }
+    /* Pre-processed songs are already a purified WAV. Dump those bytes.
+       Never arm capture — that would re-record, and it is not needed. */
+    if (playMode === "pre" && loaded && currentPurified && currentPurified.wav) {
+      exportPurifiedNow(song, currentPurified.wav);
+      return;
+    }
     if (playMode !== "live" || !loaded) {
       toast("Play the song first, then save its purified voice.");
       return;
@@ -3025,6 +3549,20 @@
   on($("mp-next"), "click", stepNext);
   on($("mp-prev"), "click", stepPrev);
 
+  /* In-app song navigator: changes tracks without opening Now Playing. */
+  on($("notice-prev"), "click", function (e) {
+    if (e && e.preventDefault) e.preventDefault();
+    stepPrev({ keepClosed: true, force: true });
+  });
+  on($("notice-next"), "click", function (e) {
+    if (e && e.preventDefault) e.preventDefault();
+    stepNext({ keepClosed: true });
+  });
+  on($("load-cancel"), "click", function (e) {
+    if (e && e.preventDefault) e.preventDefault();
+    cancelRender();
+  });
+
   on($("btn-shuffle"), "click", function () {
     shuffle = !shuffle;
     if (shuffle && queue.length > 1 && qi >= 0) {
@@ -3312,7 +3850,8 @@
         var noCover = library.filter(function (s) { return !s.cover; }).map(function (s) { return s.id; });
         if (noCover.length) setTimeout(function () { queueCoverExtraction(noCover); }, 2500);
       }
-    }).catch(function () { idbFailed = true; });
+      hideLoadScreen("boot");
+    }).catch(function () { idbFailed = true; hideLoadScreen("boot"); });
 
     updatePermissionUI();
     if (window.VocalPureAndroid && window.VocalPureAndroid.hasStoragePermission) {
